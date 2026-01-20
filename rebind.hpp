@@ -91,8 +91,65 @@ public:
         */
         if constexpr (std::is_void_v<return_type>) {
            this->fn();
+           Py_RETURN_NONE;
         }
-        // TODO: return result of the C++ function.
+        else {
+            // TODO: support refs, other types(pair, tuples, vectors, etc.).
+
+            auto result = this->fn();
+            // Floating points: float, double.
+            if constexpr (std::is_floating_point_v<return_type>) {
+                return PyFloat_FromDouble(result);
+            }
+            // Longs
+            if constexpr (std::is_same_v<return_type, long>) {
+                return PyLong_FromLong(result);
+            }
+            if constexpr (std::is_same_v<return_type, unsigned long>) {
+                return PyLong_FromUnsignedLong(result);
+            }
+            if constexpr (std::is_same_v<return_type, long long>) {
+                return PyLong_FromLongLong(result);
+            }
+            if constexpr (std::is_same_v<return_type, unsigned long long>) {
+                return PyLong_FromUnsignedLongLong(result);
+            }
+            // Integers
+            if constexpr (std::is_same_v<return_type, int32_t>) {
+                return PyLong_FromInt32(result);
+            }
+            if constexpr (std::is_same_v<return_type, uint32_t>) {
+                return PyLong_FromUInt32(result);
+            }
+            if constexpr (std::is_same_v<return_type, int64_t>) {
+                return PyLong_FromInt64(result);
+            }
+            if constexpr (std::is_same_v<return_type, uint64_t>) {
+                return PyLong_FromUInt64(result);
+            }
+            // size_t
+            if constexpr (std::is_same_v<return_type, size_t>) {
+                return PyLong_FromSize_t(result);
+            }
+            if constexpr (std::is_same_v<return_type, ssize_t>) {
+                return PyLong_FromSsize_t(result);
+            }
+            // Boolean
+            if constexpr (std::is_same_v<return_type, bool>) {
+                if (result) {
+                    Py_RETURN_TRUE;
+                }
+                Py_RETURN_FALSE;
+            }
+            // Strings
+            if constexpr (std::is_same_v<return_type, std::string_view> ||
+                std::is_same_v<return_type, std::string>) {
+                return PyUnicode_FromStringAndSize(result.data(), result.size());
+            }
+            if constexpr (std::is_same_v<return_type, const char *>) {
+                return PyUnicode_FromString(result);
+            }
+        }
         Py_RETURN_NONE;
     }
 
