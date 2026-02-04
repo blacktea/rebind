@@ -31,8 +31,6 @@ By using reflection, the rebind project can get `foo` and `bar` methods and make
 
 Current limitations include:
 - Only free functions in namespaces are supported
-- No function arguments are parsed yet
-- Return values other than `void` are not handled
 - No overload resolution
 - No classes, member functions, or variables
 - No exception translation (C++ → Python)
