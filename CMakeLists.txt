@@ -9,6 +9,9 @@ set(CLANG_INSTALL_PREFIX
 
 option(USE_STATIC_LIBCXX "Link libc++/libc++abi/libunwind statically" ON)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Enable/Disable output of compile commands during generation." FORCE)
+
+
 set(CMAKE_CXX_COMPILER
     "${CLANG_INSTALL_PREFIX}/bin/clang++"
     CACHE FILEPATH "Clang++ compiler"

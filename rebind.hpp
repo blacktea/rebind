@@ -1,30 +1,34 @@
 #pragma once
 
+#include "cast.hpp"
+
 #include <algorithm>
 #include <cassert>
+#include <functional>
 #include <meta>
-#include <type_traits>
+#include <print>
 #include <ranges>
-#include <tuple>
 #include <stdexcept>
 #include <string>
+#include <tuple>
+#include <type_traits>
 #include <utility>
 
 #include <Python.h>
-
 
 namespace rebind {
 
 // The method counts number of methods in a given namespace
 // Template Type denotes namespace.
-template<auto Type>
+template <auto Type>
 inline consteval size_t numOfMembers() {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
-    
+
     return std::ranges::distance(std::meta::members_of(Type, ctx));
 }
 
-// Helper function to extract return type, arguments and its types of the function.
+// Helper function to extract return type, arguments and its types of the
+// function.
 // TODO: use from std::meta. I didn't find any helpful method out there.
 template <class T>
 struct function_traits;
@@ -33,7 +37,7 @@ struct function_traits;
 template <class R, class... Args>
 struct function_traits<R(Args...)> {
     using return_type = R;
-    using args_tuple  = std::tuple<Args...>;
+    using args_tuple = std::tuple<Args...>;
 
     static constexpr std::size_t arity = sizeof...(Args);
 
@@ -43,12 +47,11 @@ struct function_traits<R(Args...)> {
 
 // 2) Function pointer: R(*)(Args...)
 template <class R, class... Args>
-struct function_traits<R(*)(Args...)> : function_traits<R(Args...)> {};
-
+struct function_traits<R (*)(Args...)> : function_traits<R(Args...)> {};
 
 // 3) Function reference: R(&)(Args...)
 template <class R, class... Args>
-struct function_traits<R(&)(Args...)> : function_traits<R(Args...)> {};
+struct function_traits<R (&)(Args...)> : function_traits<R(Args...)> {};
 
 // The class implements type erasure pattern hiding function signature.
 class CallableBase {
@@ -61,24 +64,22 @@ template <typename Fn>
 class CallableInfo final : public CallableBase {
     using traits = function_traits<Fn>;
     using return_type = typename traits::return_type;
-    using args_tuple  = typename traits::args_tuple;
-public:    
-    constexpr explicit CallableInfo(const char *fnName, Fn f) noexcept
-    : name{fnName}
-    , fn{f}
-    {
+    using args_tuple = typename traits::args_tuple;
+
+public:
+    constexpr explicit CallableInfo(const char* fnName, Fn f) noexcept : name{fnName}, fn{f} {
         this->invoke = &this->pyWrapperThunk;
     }
-    
+
     static PyObject* pyWrapperThunk(const CallableBase* base, PyObject* args, PyObject* kwargs) noexcept {
         return static_cast<const CallableInfo<Fn>*>(base)->pyWrapper(args, kwargs);
     }
-    
+
     // This function does:
     // - parsing args passed from Python.
     // - invoke C++ method.
     // - return back a result.
-    PyObject* pyWrapper(PyObject* /*args*/, PyObject* /*kwargs*/) const noexcept{
+    PyObject* pyWrapper(PyObject* args, PyObject* /*kwargs*/) const noexcept {
         /*
         TODO: Handle errors, exceptions, etc.
         TODO: parse arguments. Currently supports method with no arguments.
@@ -87,90 +88,69 @@ public:
         - f: Float (converts to C float).
         - d: Double (converts to C double).
         - O: Object (extracts the raw PyObject* without conversion).
-        - |: Indicates that subsequent arguments are optional. 
+        - |: Indicates that subsequent arguments are optional.
         */
-        if constexpr (std::is_void_v<return_type>) {
-           this->fn();
-           Py_RETURN_NONE;
+
+        // Check args is tuple.
+        if (!PyTuple_Check(args)) {
+            PyErr_SetString(PyExc_ValueError, "Args must be a tuple type");
+            Py_RETURN_NONE;
         }
-        else {
+
+        if (PyTuple_GET_SIZE(args) != std::tuple_size_v<args_tuple>) {
+            PyErr_SetString(PyExc_ValueError, "Mismatch number of arguments");
+            Py_RETURN_NONE;
+        }
+
+        auto invoke_with_args = [this, args]<size_t... I>(std::index_sequence<I...>) {
+            if constexpr (std::tuple_size_v<args_tuple> == 0) {
+                static_assert(std::tuple_size_v<args_tuple> == 0);
+                return this->fn();
+
+            } else {
+                static_assert(std::tuple_size_v<args_tuple> > 0);
+                return std::invoke(
+                    [this, args](auto&&... a) { return this->fn(std::forward<decltype(a)>(a)...); },
+                    cast_tuple_item_to_cpp<std::tuple_element_t<I, args_tuple>>(args, I)...
+                );
+            }
+        };
+
+        if constexpr (std::is_void_v<return_type>) {
+            invoke_with_args(std::make_index_sequence<0>{});
+            Py_RETURN_NONE;
+        } else {
             // TODO: support refs, other types(pair, tuples, vectors, etc.).
 
-            auto result = this->fn();
-            // Floating points: float, double.
-            if constexpr (std::is_floating_point_v<return_type>) {
-                return PyFloat_FromDouble(result);
+            auto result = invoke_with_args(std::make_index_sequence<std::tuple_size_v<args_tuple>>{});
+            PyObject* py_result = cast_to_python(result);
+            if (!py_result) {
+                PyErr_SetString(PyExc_ValueError, "failed to cast to python object");
+                Py_RETURN_NONE;
             }
-            // Longs
-            if constexpr (std::is_same_v<return_type, long>) {
-                return PyLong_FromLong(result);
-            }
-            if constexpr (std::is_same_v<return_type, unsigned long>) {
-                return PyLong_FromUnsignedLong(result);
-            }
-            if constexpr (std::is_same_v<return_type, long long>) {
-                return PyLong_FromLongLong(result);
-            }
-            if constexpr (std::is_same_v<return_type, unsigned long long>) {
-                return PyLong_FromUnsignedLongLong(result);
-            }
-            // Integers
-            if constexpr (std::is_same_v<return_type, int32_t>) {
-                return PyLong_FromInt32(result);
-            }
-            if constexpr (std::is_same_v<return_type, uint32_t>) {
-                return PyLong_FromUInt32(result);
-            }
-            if constexpr (std::is_same_v<return_type, int64_t>) {
-                return PyLong_FromInt64(result);
-            }
-            if constexpr (std::is_same_v<return_type, uint64_t>) {
-                return PyLong_FromUInt64(result);
-            }
-            // size_t
-            if constexpr (std::is_same_v<return_type, size_t>) {
-                return PyLong_FromSize_t(result);
-            }
-            if constexpr (std::is_same_v<return_type, ssize_t>) {
-                return PyLong_FromSsize_t(result);
-            }
-            // Boolean
-            if constexpr (std::is_same_v<return_type, bool>) {
-                if (result) {
-                    Py_RETURN_TRUE;
-                }
-                Py_RETURN_FALSE;
-            }
-            // Strings
-            if constexpr (std::is_same_v<return_type, std::string_view> ||
-                std::is_same_v<return_type, std::string>) {
-                return PyUnicode_FromStringAndSize(result.data(), result.size());
-            }
-            if constexpr (std::is_same_v<return_type, const char *>) {
-                return PyUnicode_FromString(result);
-            }
+            return py_result;
         }
         Py_RETURN_NONE;
     }
 
-    const char *getName() const noexcept {
+    const char* getName() const noexcept {
         assert(name);
         return name;
     }
 
-    const char *getDoc() const noexcept {
+    const char* getDoc() const noexcept {
         assert(doc);
         return doc;
     }
 
 private:
-    const char *name{nullptr};
-    const char *doc{"doc"};
+    const char* name{nullptr};
+    const char* doc{"doc"};
     Fn fn;
 };
 
 // The method creates Callable info from a function in the Type at I index.
-template<auto Type, size_t I>
+template <auto Type, size_t I>
 inline consteval auto getMethod() noexcept {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
     constexpr auto members = std::define_static_array(std::meta::members_of(Type, ctx));
@@ -178,14 +158,13 @@ inline consteval auto getMethod() noexcept {
         // TODO: NOTE: identifier_of is not null terminated.
         constexpr auto name = std::meta::identifier_of(members[I]);
         return std::make_tuple(CallableInfo{name.data(), [:members[I]:]});
-    }
-    else {
+    } else {
         return std::tuple<>();
     }
 }
 
 // Utility method that creates tuple of CallableInfo objects.
-template<auto Type, size_t ...I>
+template <auto Type, size_t... I>
 inline consteval auto collectFunctionsImpl(std::index_sequence<I...> seq) noexcept {
     return std::tuple_cat(getMethod<Type, I>()...);
 }
@@ -195,44 +174,47 @@ inline consteval auto collectFunctionsImpl(std::index_sequence<I...> seq) noexce
 // namespace v1 {
 // void foo();
 // }
-template<auto Type>
+template <auto Type>
 [[nodiscard]] inline consteval auto collectFunctions() noexcept {
-    return collectFunctionsImpl<Type>(
-        std::make_index_sequence<numOfMembers<Type>()>{}
-    );
+    return collectFunctionsImpl<Type>(std::make_index_sequence<numOfMembers<Type>()>{});
 }
 
-template<auto Type>
+template <auto Type>
 inline constinit auto functionsStorage = collectFunctions<Type>();
 
-// Tranpoline, addFunction methods are used to be able to invoke free C++ functions as callable object.
+// Tranpoline, addFunction methods are used to be able to invoke free C++
+// functions as callable object.
 extern "C" inline PyObject* trampoline(PyObject* self, PyObject* args, PyObject* kwargs) {
     const auto* cb = static_cast<const CallableBase*>(PyCapsule_GetPointer(self, "callable"));
-    if (!cb) return nullptr;
+    if (!cb) {
+        return nullptr;
+    }
 
     return cb->invoke(cb, args, kwargs);
 }
 
-template<typename Fn>
-inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn> *cb) {
+template <typename Fn>
+inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn>* cb) {
     // NOTE: PyMethodDef must live for the lifetime of the module.
     // We intentionally leak it.
-    auto* def = new PyMethodDef{
-        cb->getName(),
-        (PyCFunction)trampoline,
-        METH_VARARGS | METH_KEYWORDS,
-        cb->getDoc()
-    };
+    auto* def = new PyMethodDef{cb->getName(), (PyCFunction)trampoline, METH_VARARGS | METH_KEYWORDS, cb->getDoc()};
 
     PyObject* cap = PyCapsule_New(const_cast<void*>(reinterpret_cast<const void*>(cb)), "callable", nullptr);
 
-    if (!cap) { delete def; return nullptr; }
+    if (!cap) {
+        delete def;
+        return nullptr;
+    }
 
     PyObject* fn = PyCFunction_NewEx(def, cap, nullptr);
-    if (!fn) { Py_DECREF(cap); delete def; return nullptr; }
+    if (!fn) {
+        Py_DECREF(cap);
+        delete def;
+        return nullptr;
+    }
 
     if (PyModule_AddObject(module, cb->getName(), fn) != 0) {
-        Py_DECREF(fn); // also decref cap via function internals
+        Py_DECREF(fn);  // also decref cap via function internals
         return nullptr;
     }
 
@@ -241,49 +223,45 @@ inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn> *cb) {
     return fn;
 }
 
-template<typename T>
-inline void addFunctionsWithTuple(PyObject *module, const T& tuple) {
-    std::apply([module](auto&& ... t) {    
-        // TODO: handle errors(nullptr-s);    
-        (addFunction(module, &t), ...);             
-    }, tuple);
+template <typename T>
+inline void addFunctionsWithTuple(PyObject* module, const T& tuple) {
+    std::apply(
+        [module](auto&&... t) {
+            // TODO: handle errors(nullptr-s);
+            (addFunction(module, &t), ...);
+        },
+        tuple
+    );
 }
 
-[[nodiscard]] inline PyObject* initModule(const char *name) {
-    PyModuleDef* defs = new PyModuleDef{
-        PyModuleDef_HEAD_INIT,
-        name,
-        nullptr,
-        -1,
-        nullptr
-    };
+[[nodiscard]] inline PyObject* initModule(const char* name) {
+    PyModuleDef* defs = new PyModuleDef{PyModuleDef_HEAD_INIT, name, nullptr, -1, nullptr};
 
-    if(auto m = PyModule_Create(defs); m) {
+    if (auto m = PyModule_Create(defs); m) {
         return m;
     }
     throw std::runtime_error{"failed to create module"};
 }
 
-} // rebind namespace
+}  // namespace rebind
 
-#define REFLB_CONCAT_RAW(a, b) a ## b
+#define REFLB_CONCAT_RAW(a, b) a##b
 #define REFLB_CONCAT(a, b) REFLB_CONCAT_RAW(a, b)
 
-
-// Helper macros to create PyInit_ function. 
-// This macros creates initializing module function and adds functions from `entity` to it.
-// Note: Not sure if it's possible to do that via C++ std::meta by now.
-// Limitations:
+// Helper macros to create PyInit_ function.
+// This macros creates initializing module function and adds functions from
+// `entity` to it. Note: Not sure if it's possible to do that via C++ std::meta
+// by now. Limitations:
 // - no noexcept detection
 // - no ref qualifiers
 // - no default args
 // - and more.
 
-#define REFLB_MODULE(name, entity)                                                 \
-    PyMODINIT_FUNC REFLB_CONCAT(PyInit_, name)() {                                 \
-        const char *cname = #name;                                                 \
-        PyObject * m = rebind::initModule(cname);                                  \
-        static const auto& functions = rebind::functionsStorage<^^entity>;         \
-        rebind::addFunctionsWithTuple(m, functions);                               \
-        return m;                                                                  \
+#define REFLB_MODULE(name, entity)                                         \
+    PyMODINIT_FUNC REFLB_CONCAT(PyInit_, name)() {                         \
+        const char* cname = #name;                                         \
+        PyObject* m = rebind::initModule(cname);                           \
+        static const auto& functions = rebind::functionsStorage<^^entity>; \
+        rebind::addFunctionsWithTuple(m, functions);                       \
+        return m;                                                          \
     }
