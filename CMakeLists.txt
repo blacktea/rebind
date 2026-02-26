@@ -6,9 +6,9 @@ set(CLANG_INSTALL_PREFIX
     ""
     CACHE PATH "Custom Clang/LLVM install prefix"
 )
-
 option(USE_STATIC_LIBCXX "Link libc++/libc++abi/libunwind statically" ON)
 option(BUILD_EXAMPLES "Builds examples" ON)
+OPTION(BUILD_TESTS "Builds tests" ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Enable/Disable output of compile commands during generation." FORCE)
 
@@ -78,4 +78,8 @@ endif()
 
 if(BUILD_EXAMPLES)
     add_subdirectory(examples)
+endif()
+
+if(BUILD_TESTS)
+    add_subdirectory(tests)
 endif()
