@@ -1,0 +1,22 @@
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "rebind"
+version = "0.1.0"
+description = "Python bindings with C++ reflection"
+readme = "README.md"
+authors = []
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = ["test.py", "test_*.py", "*_test.py"]
+addopts = "-ra"
