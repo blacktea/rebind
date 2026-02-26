@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.22)
-project(example LANGUAGES CXX)
+project(rebind LANGUAGES CXX)
 
 # Path to your custom LLVM/Clang install
 set(CLANG_INSTALL_PREFIX
@@ -8,6 +8,7 @@ set(CLANG_INSTALL_PREFIX
 )
 
 option(USE_STATIC_LIBCXX "Link libc++/libc++abi/libunwind statically" ON)
+option(BUILD_EXAMPLES "Builds examples" ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Enable/Disable output of compile commands during generation." FORCE)
 
@@ -20,8 +21,6 @@ set(CMAKE_CXX_COMPILER
 ### Build rebind library.
 
 add_library(rebind INTERFACE)
-
-
 target_compile_options(rebind INTERFACE 
     -Wall
     -Wextra
@@ -32,9 +31,16 @@ target_compile_options(rebind INTERFACE
 )
 
 # libc++ headers (needed for <meta>)
+message(${CMAKE_CURRENT_LIST_DIR})
 target_include_directories(rebind INTERFACE
+    "${CMAKE_CURRENT_LIST_DIR}/include"
     "${CLANG_INSTALL_PREFIX}/include/c++/v1"
     ${Python3_INCLUDE_DIRS}
+)
+# Find and link Python
+find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+target_link_libraries(rebind INTERFACE
+    Python3::Python
 )
 
 if (USE_STATIC_LIBCXX)
@@ -69,28 +75,7 @@ else()
 endif()
 
 
-### Build example library.
 
-add_library(example MODULE test.cpp)
-target_link_libraries(example PRIVATE rebind)
-
-
-# Find and link Python
-find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
-target_link_libraries(example PRIVATE
-Python3::Python
-)
-
-# Ask python for extension suffix
-execute_process(
-    COMMAND ${Python3_EXECUTABLE}-config --extension-suffix
-    OUTPUT_VARIABLE PY_EXT_SUFFIX
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
-# Apply Python extension naming
-set_target_properties(example PROPERTIES
-    PREFIX ""
-    SUFFIX "${PY_EXT_SUFFIX}"
-    POSITION_INDEPENDENT_CODE ON
-)
+if(BUILD_EXAMPLES)
+    add_subdirectory(examples)
+endif()
