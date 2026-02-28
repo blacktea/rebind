@@ -27,14 +27,16 @@ REFLB_MODULE(example, test)
 
 By using reflection, the rebind project can get `foo` and `bar` methods and makes them available for Python code. Exposing new methods does not require writing binding code; recompiling the project is sufficient.
 
-## Limitations
+## TODO
 
 Current limitations include:
-- Only free functions in namespaces are supported
-- No overload resolution
-- No classes, member functions, or variables
-- No exception translation (C++ → Python)
-- Requires an experimental Clang fork (not standard C++)
+
+- [ ] No overload resolution
+- [ ] Handle types mismatch
+- [ ] Only free functions in namespaces are supported
+- [ ] Support classes, member functions, or variables
+- [ ] Handle exception translation (C++ → Python)
+- [ ] Requires an experimental Clang fork (not standard C++)
 
 These limitations are intentional to keep the project focused on
 demonstrating C++ reflection.
