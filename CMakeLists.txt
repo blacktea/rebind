@@ -8,7 +8,7 @@ set(CLANG_INSTALL_PREFIX
 )
 option(USE_STATIC_LIBCXX "Link libc++/libc++abi/libunwind statically" ON)
 option(BUILD_EXAMPLES "Builds examples" ON)
-OPTION(BUILD_TESTS "Builds tests" ON)
+option(BUILD_TESTS "Builds tests" ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE BOOL "Enable/Disable output of compile commands during generation." FORCE)
 
@@ -30,6 +30,9 @@ target_compile_options(rebind INTERFACE
     -stdlib=libc++
 )
 
+include(cmake/PythonUtils.cmake)
+
+
 # libc++ headers (needed for <meta>)
 message(${CMAKE_CURRENT_LIST_DIR})
 target_include_directories(rebind INTERFACE
@@ -37,8 +40,7 @@ target_include_directories(rebind INTERFACE
     "${CLANG_INSTALL_PREFIX}/include/c++/v1"
     ${Python3_INCLUDE_DIRS}
 )
-# Find and link Python
-find_package(Python3 REQUIRED COMPONENTS Interpreter Development)
+
 target_link_libraries(rebind INTERFACE
     Python3::Python
 )

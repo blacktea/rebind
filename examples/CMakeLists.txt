@@ -13,16 +13,9 @@ target_compile_options(example PRIVATE
     -stdlib=libc++
 )
 
-# Ask python for extension suffix
-execute_process(
-    COMMAND ${Python3_EXECUTABLE}-config --extension-suffix
-    OUTPUT_VARIABLE PY_EXT_SUFFIX
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-)
-
 # Apply Python extension naming
 set_target_properties(example PROPERTIES
     PREFIX ""
-    SUFFIX "${PY_EXT_SUFFIX}"
+    SUFFIX "${PYTHON_EXT_SUFFIX}"
     POSITION_INDEPENDENT_CODE ON
 )
