@@ -67,13 +67,17 @@ cmake --build build
 ```
 These commands produce a shared library. To run a Python code, that library and python file should be in the same folder. Now we can run Python code, which invokes C++ functions.
 
-Pass -DPYTHON_EXE to run pytests.
+
+## TEST
+
+Preparing step includes installing venv and install depencies.
 
 ```
-python test.py
+python3 -m venv .venv
+poetry install
 ```
 
-Run tests:
+Then running tests is simple:
 
 ```
 cmake --build build --target pytest 
