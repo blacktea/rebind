@@ -18,6 +18,15 @@ def test_return_types() -> None:
     assert tests.return_string() == "hello from std::string"
     assert tests.return_string_view() == "hello from std::string_view"
     assert tests.return_c_string() == "hello from const char*"
+    assert (
+        tests.accept_and_return_c_string("hello, accept_and_return_c_string")
+        == "hello, accept_and_return_c_string"
+    )
+    assert tests.accept_and_return_std_string("std::string") == "return std::string"
+    assert (
+        tests.accept_and_return_std_string_view("std::string_view")
+        == "std::string_view"
+    )
 
 
 def test_argument_types() -> None:
