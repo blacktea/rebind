@@ -4,6 +4,8 @@
 #include <string>
 #include <string_view>
 
+int pow(int);
+
 namespace test {
 
 float return_float() { return 3.14f; }
@@ -25,6 +27,12 @@ std::string return_string() { return "hello from std::string"; }
 std::string_view return_string_view() { return "hello from std::string_view"; }
 
 const char* return_c_string() { return "hello from const char*"; }
+
+const char* accept_and_return_c_string(const char* str) { return str; }
+
+std::string accept_and_return_std_string(std::string str) { return std::format("return {}", str); }
+
+std::string_view accept_and_return_std_string_view(std::string_view str) { return str; }
 
 int add_int(int a, int b) { return a + b; }
 

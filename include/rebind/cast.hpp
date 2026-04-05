@@ -75,23 +75,49 @@ PyObject* cast_to_python(CType&& value) {
     return nullptr;
 }
 
+template <typename T>
+concept StringConvertible = std::is_constructible_v<std::string, T> || std::is_constructible_v<std::string_view, T>;
+
 template <typename CType>
 CType cast_to_cpp(PyObject* obj) {
     if (!obj) {
         throw std::runtime_error{"python object must be set"};
     }
-    if constexpr (std::is_integral_v<CType>) {
+
+    using CTypeRaw = std::remove_cvref_t<CType>;
+
+    // int, bool, long, etc.
+    if constexpr (std::is_integral_v<CTypeRaw>) {
         if (!PyLong_Check(obj)) {
             throw std::runtime_error{"type is not compatible with C++ long"};
         }
-        return static_cast<CType>(PyLong_AsLong(obj));
+        return static_cast<CTypeRaw>(PyLong_AsLong(obj));
     }
-    if constexpr (std::is_floating_point_v<CType>) {
+    if constexpr (std::is_floating_point_v<CTypeRaw>) {
         if (!PyFloat_Check(obj)) {
             throw std::runtime_error{"type is not compatible with C++ floating point"};
         }
-        return static_cast<CType>(PyFloat_AsDouble(obj));
+        return static_cast<CTypeRaw>(PyFloat_AsDouble(obj));
     }
+    // Strings
+    if constexpr (StringConvertible<CType>) {
+        if (!PyUnicode_Check(obj)) {
+            throw std::runtime_error{"type is not compatible with C++ string-like argument"};
+        }
+
+        Py_ssize_t len{};
+        const char* str = PyUnicode_AsUTF8AndSize(obj, &len);
+        std::string_view str_view{str, static_cast<size_t>(len)};
+        // TODO: always return string_view.
+        // By now create the object of the type as the type of argument.
+
+        if constexpr (std::is_same_v<CTypeRaw, const char*>) {
+            return str_view.data();
+        } else {
+            return CTypeRaw{str_view};
+        }
+    }
+
     return CType{};
 }
 
