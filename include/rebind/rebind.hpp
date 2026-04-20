@@ -164,7 +164,7 @@ inline consteval auto getMethod() noexcept {
 }
 
 // Utility method that creates tuple of CallableInfo objects.
-template <auto Type, size_t... I>
+template <std::meta::info Type, size_t... I>
 inline consteval auto collectFunctionsImpl(std::index_sequence<I...> seq) noexcept {
     return std::tuple_cat(getMethod<Type, I>()...);
 }
@@ -174,12 +174,12 @@ inline consteval auto collectFunctionsImpl(std::index_sequence<I...> seq) noexce
 // namespace v1 {
 // void foo();
 // }
-template <auto Type>
+template <std::meta::info Type>
 [[nodiscard]] inline consteval auto collectFunctions() noexcept {
     return collectFunctionsImpl<Type>(std::make_index_sequence<numOfMembers<Type>()>{});
 }
 
-template <auto Type>
+template <std::meta::info Type>
 inline constinit auto functionsStorage = collectFunctions<Type>();
 
 // Tranpoline, addFunction methods are used to be able to invoke free C++

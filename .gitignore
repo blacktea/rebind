@@ -1,5 +1,5 @@
-build
+build*
 .env
-.venv
+.venv*
 *.so
 *.pyc

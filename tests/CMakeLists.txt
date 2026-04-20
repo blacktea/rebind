@@ -4,26 +4,33 @@ project(tests LANGUAGES CXX)
 
 add_library(lib STATIC extern_func_impl.cpp)
 
+set(test_targets)
 
-add_library(tests MODULE args_and_returns.cpp)
-target_link_libraries(tests PRIVATE rebind lib)
-target_compile_options(tests PRIVATE 
-    -Wall
-    -Wextra
-    -std=c++26
-    -freflection
-    -freflection-latest
-    -stdlib=libc++
-)
 
-# Apply Python extension naming
-set_target_properties(tests PROPERTIES
-    PREFIX ""
-    SUFFIX "${PYTHON_EXT_SUFFIX}"
-    POSITION_INDEPENDENT_CODE ON
-)
-set(test_targets tests)
+function(add_test name src)
+    add_library(${name} MODULE ${src}.cpp)
+    target_link_libraries(${name} PRIVATE rebind lib)
+    target_compile_options(${name} PRIVATE 
+        -Wall
+        -Wextra
+        -std=c++26
+        -freflection
+    )
 
+    # Apply Python extension naming
+    set_target_properties(${name} PROPERTIES
+        PREFIX ""
+        SUFFIX "${PYTHON_EXT_SUFFIX}"
+        POSITION_INDEPENDENT_CODE ON
+    )
+    message(STATUS "name " ${name})
+
+    set(test_targets ${test_targets};${name} PARENT_SCOPE)
+endfunction()
+
+add_test(tests args_and_returns)
+
+message(STATUS "test_targets" ${test_targets})
 # Run tests
 add_custom_target(
   pytest
@@ -31,4 +38,3 @@ add_custom_target(
   DEPENDS ${test_targets}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   USES_TERMINAL)
-  

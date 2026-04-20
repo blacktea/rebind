@@ -9,8 +9,6 @@ target_compile_options(example PRIVATE
     -Wextra
     -std=c++26
     -freflection
-    -freflection-latest
-    -stdlib=libc++
 )
 
 # Apply Python extension naming

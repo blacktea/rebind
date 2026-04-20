@@ -1,5 +1,4 @@
-# rebind
-Python bindings with C++ reflection.
+# rebind - Python bindings with C++ reflection.
 
 This projects implements Python bindings for C++ using C++26 reflection. The reflection provides meta information about entities(e.g. classes, functions, variables).\
 The main advantage of using reflection is that we can automatically build bindings without writing any additional code.
@@ -25,24 +24,30 @@ All we need to do is to provide the `test` namespace:
 REFLB_MODULE(example, test)
 ```
 
-By using reflection, the rebind project can get `foo` and `bar` methods and makes them available for Python code. Exposing new methods does not require writing binding code; recompiling the project is sufficient.
+By using reflection, the rebind project can get `foo` and `bar` methods and makes them available for Python code. Exposing new methods does not require writing binding code.
 
-## TODO
+```python
 
-Current limitations include:
+import test
 
-- [ ] No overload resolution
-- [ ] Handle types mismatch
-- [ ] Only free functions in namespaces are supported
-- [ ] Support classes, member functions, or variables
-- [ ] Handle exception translation (C++ → Python)
-- [ ] Requires an experimental Clang fork (not standard C++)
+test.add(1, 2)
+test.mul(3.4, 5.6)
 
-These limitations are intentional to keep the project focused on
-demonstrating C++ reflection.
+```
 
 
 ## BUILD
+
+### With trunk gcc
+
+Trunk gcc supports reflection. The Dockerfile in the repo compiles trunk gcc and build the project.
+
+1. Build an image: `docker build -t rebind .`
+2. Run the image: `docker run -it --rm -v $(pwd):/rebind -t rebind`
+3. Build: `cmake -S . --build build` && `cmake --build build`
+
+
+### With clang fork
 
 Prerequisites. By now, no mainstream compilers support reflection. [a clang fork](https://github.com/bloomberg/clang-p2996/tree/p2996) is an experimental implementation of the feature. It requires to build a clang compiler.
 
@@ -54,7 +59,7 @@ cmake --build build && \
 cmake --install build
 ```
 
-First of all, set up clang compilers for C++ and C:
+First, set up clang compilers for C++ and C:
 
 ```
 export CC=/path_to_clang/install/bin/clang
@@ -67,6 +72,7 @@ Then, configure and build the project.
 cmake -S . -B build -DCLANG_INSTALL_PREFIX=/path_to_clang/install -DUSE_STATIC_LIBCXX=ON && \
 cmake --build build
 ```
+
 These commands produce a shared library. To run a Python code, that library and python file should be in the same folder. Now we can run Python code, which invokes C++ functions.
 
 
@@ -84,3 +90,17 @@ Then running tests is simple:
 ```
 cmake --build build --target pytest 
 ```
+
+## TODO
+
+Current limitations include:
+
+- [ ] No overload resolution
+- [ ] Handle types mismatch
+- [ ] Only free functions in namespaces are supported
+- [ ] Support classes, member functions, or variables
+- [ ] Handle exception translation (C++ → Python)
+- [ ] Requires an experimental Clang fork (not standard C++)
+
+These limitations are intentional to keep the project focused on
+demonstrating C++ reflection.
