@@ -20,7 +20,11 @@ set(CMAKE_CXX_COMPILER
 
 ### Build rebind library.
 
-add_library(rebind INTERFACE)
+add_library(rebind INTERFACE
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/rebind/rebind.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/rebind/cast.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/rebind/function_traits.hpp"
+)
 target_compile_options(rebind INTERFACE 
     -Wall
     -Wextra

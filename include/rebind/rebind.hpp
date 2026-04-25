@@ -1,6 +1,7 @@
 #pragma once
 
 #include "cast.hpp"
+#include "function_traits.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -10,6 +11,7 @@
 #include <ranges>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -27,32 +29,6 @@ inline consteval size_t numOfMembers() {
     return std::ranges::distance(std::meta::members_of(Type, ctx));
 }
 
-// Helper function to extract return type, arguments and its types of the
-// function.
-// TODO: use from std::meta. I didn't find any helpful method out there.
-template <class T>
-struct function_traits;
-
-// 1) Plain function type: R(Args...)
-template <class R, class... Args>
-struct function_traits<R(Args...)> {
-    using return_type = R;
-    using args_tuple = std::tuple<Args...>;
-
-    static constexpr std::size_t arity = sizeof...(Args);
-
-    template <std::size_t N>
-    using arg = std::tuple_element_t<N, args_tuple>;
-};
-
-// 2) Function pointer: R(*)(Args...)
-template <class R, class... Args>
-struct function_traits<R (*)(Args...)> : function_traits<R(Args...)> {};
-
-// 3) Function reference: R(&)(Args...)
-template <class R, class... Args>
-struct function_traits<R (&)(Args...)> : function_traits<R(Args...)> {};
-
 // The class implements type erasure pattern hiding function signature.
 class CallableBase {
 public:
@@ -67,7 +43,7 @@ class CallableInfo final : public CallableBase {
     using args_tuple = typename traits::args_tuple;
 
 public:
-    constexpr explicit CallableInfo(const char* fnName, Fn f) noexcept : name{fnName}, fn{f} {
+    constexpr explicit CallableInfo(std::string_view fnName, Fn f) noexcept : name{fnName}, fn{f} {
         this->invoke = &this->pyWrapperThunk;
     }
 
@@ -133,19 +109,13 @@ public:
         Py_RETURN_NONE;
     }
 
-    const char* getName() const noexcept {
-        assert(name);
-        return name;
-    }
+    [[nodiscard]] constexpr std::string_view getName() const noexcept { return name; }
 
-    const char* getDoc() const noexcept {
-        assert(doc);
-        return doc;
-    }
+    [[nodiscard]] std::string_view getDoc() const noexcept { return doc; }
 
 private:
-    const char* name{nullptr};
-    const char* doc{"doc"};
+    std::string_view name{nullptr};
+    std::string_view doc{"doc"};
     Fn fn;
 };
 
@@ -156,8 +126,8 @@ inline consteval auto getMethod() noexcept {
     constexpr auto members = std::define_static_array(std::meta::members_of(Type, ctx));
     if constexpr (std::meta::is_function(members[I])) {
         // TODO: NOTE: identifier_of is not null terminated.
-        constexpr auto name = std::meta::identifier_of(members[I]);
-        return std::make_tuple(CallableInfo{name.data(), [:members[I]:]});
+        constexpr std::string_view name = std::meta::identifier_of(members[I]);
+        return std::make_tuple(CallableInfo{name, [:members[I]:]});
     } else {
         return std::tuple<>();
     }
@@ -197,7 +167,12 @@ template <typename Fn>
 inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn>* cb) {
     // NOTE: PyMethodDef must live for the lifetime of the module.
     // We intentionally leak it.
-    auto* def = new PyMethodDef{cb->getName(), (PyCFunction)trampoline, METH_VARARGS | METH_KEYWORDS, cb->getDoc()};
+    auto* def = new PyMethodDef{
+        cb->getName().data(),
+        (PyCFunction)trampoline,
+        METH_VARARGS | METH_KEYWORDS,
+        cb->getDoc().data()
+    };
 
     PyObject* cap = PyCapsule_New(const_cast<void*>(reinterpret_cast<const void*>(cb)), "callable", nullptr);
 
@@ -213,7 +188,7 @@ inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn>* cb) {
         return nullptr;
     }
 
-    if (PyModule_AddObject(module, cb->getName(), fn) != 0) {
+    if (PyModule_AddObject(module, cb->getName().data(), fn) != 0) {
         Py_DECREF(fn);  // also decref cap via function internals
         return nullptr;
     }
