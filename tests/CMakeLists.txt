@@ -28,13 +28,13 @@ function(add_test name src)
     set(test_targets ${test_targets};${name} PARENT_SCOPE)
 endfunction()
 
-add_test(tests args_and_returns)
+add_test(custom class)
 
 message(STATUS "test_targets" ${test_targets})
 # Run tests
 add_custom_target(
   pytest
-  COMMAND ${CMAKE_COMMAND} -E env TEST_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR} ${Python3_EXECUTABLE} -m pytest -s test_args_and_returns.py
+  COMMAND ${CMAKE_COMMAND} -E env TEST_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR} ${Python3_EXECUTABLE} -m pytest -s test_class.py
   DEPENDS ${test_targets}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   USES_TERMINAL)
