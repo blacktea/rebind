@@ -2,14 +2,11 @@ cmake_minimum_required(VERSION 3.22)
 project(tests LANGUAGES CXX)
 
 
-add_library(lib STATIC extern_func_impl.cpp)
-
 set(test_targets)
-
 
 function(add_test name src)
     add_library(${name} MODULE ${src}.cpp)
-    target_link_libraries(${name} PRIVATE rebind lib)
+    target_link_libraries(${name} PRIVATE rebind)
     target_compile_options(${name} PRIVATE 
         -Wall
         -Wextra
@@ -28,13 +25,15 @@ function(add_test name src)
     set(test_targets ${test_targets};${name} PARENT_SCOPE)
 endfunction()
 
-add_test(custom class)
+add_test(tests args_and_returns)
+add_test(class_test class_test)
+
 
 message(STATUS "test_targets" ${test_targets})
 # Run tests
 add_custom_target(
   pytest
-  COMMAND ${CMAKE_COMMAND} -E env TEST_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR} ${Python3_EXECUTABLE} -m pytest -s test_class.py
+  COMMAND ${CMAKE_COMMAND} -E env TEST_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR} ${Python3_EXECUTABLE} -m pytest
   DEPENDS ${test_targets}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   USES_TERMINAL)
