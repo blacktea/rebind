@@ -38,16 +38,17 @@ test.mul(3.4, 5.6)
 
 ## BUILD
 
-### With trunk gcc
+### Through Docker
 
-Trunk gcc supports reflection. The Dockerfile in the repo compiles trunk gcc and build the project.
+The Dockerfile in the repo compiles trunk gcc and build the project.
 
 1. Build an image: `docker build -t rebind .`
 2. Run the image: `docker run -it --rm -v $(pwd):/rebind -t rebind`
-3. Build: `cmake -S . --build build` && `cmake --build build`
+3. (Optional) if you want to run test, activate python via `source .venv/bin/activate`
+4. Build the project: `cmake -S . --build build` && `cmake --build build`
 
 
-### With clang fork
+### Through clang fork[deprecated]
 
 Prerequisites. By now, no mainstream compilers support reflection. [a clang fork](https://github.com/bloomberg/clang-p2996/tree/p2996) is an experimental implementation of the feature. It requires to build a clang compiler.
 
