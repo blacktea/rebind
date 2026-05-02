@@ -18,8 +18,50 @@
 #include <Python.h>
 
 namespace rebind {
-template <std::meta::info Type>
-inline constinit auto entityStorage = reflect<Type>();
+
+extern "C" inline PyObject* trampoline(PyObject* self, PyObject* args, PyObject* kwargs) {
+    const auto* cb = static_cast<const CallableBase*>(PyCapsule_GetPointer(self, "callable"));
+    if (!cb) {
+        return nullptr;
+    }
+
+    return cb->invoke(cb, args, kwargs);
+}
+
+template <typename Fn>
+inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn>* cb) {
+    auto* def = new PyMethodDef{
+        cb->getName().data(),
+        reinterpret_cast<PyCFunction>(trampoline),
+        METH_VARARGS | METH_KEYWORDS,
+        cb->getDoc().data()
+    };
+
+    PyObject* cap = PyCapsule_New(const_cast<void*>(reinterpret_cast<const void*>(cb)), "callable", nullptr);
+    if (!cap) {
+        delete def;
+        return nullptr;
+    }
+
+    PyObject* fn = PyCFunction_NewEx(def, cap, nullptr);
+    if (!fn) {
+        Py_DECREF(cap);
+        delete def;
+        return nullptr;
+    }
+
+    if (PyModule_AddObject(module, cb->getName().data(), fn) != 0) {
+        Py_DECREF(fn);
+        return nullptr;
+    }
+
+    return fn;
+}
+
+template <typename T>
+inline void addFunctionsWithTuple(PyObject* module, const T& tuple) {
+    std::apply([module](auto&&... t) { (addFunction(module, &t), ...); }, tuple);
+}
 
 [[nodiscard]] inline PyObject* initModule(const char* name) {
     PyModuleDef* defs = new PyModuleDef{PyModuleDef_HEAD_INIT, name, nullptr, -1, nullptr};

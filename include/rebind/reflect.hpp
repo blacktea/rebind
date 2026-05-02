@@ -144,50 +144,6 @@ template <std::meta::info Type>
     return collectFunctionsImpl<Type>(std::make_index_sequence<numOfMembers<Type>()>{});
 }
 
-extern "C" inline PyObject* trampoline(PyObject* self, PyObject* args, PyObject* kwargs) {
-    const auto* cb = static_cast<const CallableBase*>(PyCapsule_GetPointer(self, "callable"));
-    if (!cb) {
-        return nullptr;
-    }
-
-    return cb->invoke(cb, args, kwargs);
-}
-
-template <typename Fn>
-inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn>* cb) {
-    auto* def = new PyMethodDef{
-        cb->getName().data(),
-        reinterpret_cast<PyCFunction>(trampoline),
-        METH_VARARGS | METH_KEYWORDS,
-        cb->getDoc().data()
-    };
-
-    PyObject* cap = PyCapsule_New(const_cast<void*>(reinterpret_cast<const void*>(cb)), "callable", nullptr);
-    if (!cap) {
-        delete def;
-        return nullptr;
-    }
-
-    PyObject* fn = PyCFunction_NewEx(def, cap, nullptr);
-    if (!fn) {
-        Py_DECREF(cap);
-        delete def;
-        return nullptr;
-    }
-
-    if (PyModule_AddObject(module, cb->getName().data(), fn) != 0) {
-        Py_DECREF(fn);
-        return nullptr;
-    }
-
-    return fn;
-}
-
-template <typename T>
-inline void addFunctionsWithTuple(PyObject* module, const T& tuple) {
-    std::apply([module](auto&&... t) { (addFunction(module, &t), ...); }, tuple);
-}
-
 // =======================
 // Struct/Class reflection
 // =======================
@@ -269,7 +225,7 @@ inline consteval auto reflect() {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
 
     template for (constexpr auto m : std::define_static_array(std::meta::members_of(N, ctx))) {
-        if constexpr (std::meta::is_function(m)) {
+        if constexpr (std::meta::is_function(m) || std::meta::is_variable(m)) {
             continue;
         } else if constexpr (std::meta::is_class_type(m)) {
             entities.addClass(reflect_class<m>());
