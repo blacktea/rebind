@@ -75,15 +75,25 @@ inline void addFunctionsWithTuple(PyObject* module, const T& tuple) {
 template <typename E>
 inline void addEntities(PyObject* m, E&& entities) {
     addFunctionsWithTuple(m, entities.functions);
-    std::println("num classes {}", entities.getClasses().size());
 
-    // add classes
-    for (auto&& c : entities.getClasses()) {
-        auto uc = const_cast<PyTypeObject*>(&c);
-        PyType_Ready(uc);
-        Py_INCREF(uc);
-        std::ignore = PyModule_AddObjectRef(m, c.tp_name, reinterpret_cast<PyObject*>(uc));
-    }
+    std::apply(
+        [m](auto&... class_desc) {
+            (
+                [&] {
+                    class_desc.type.tp_methods = class_desc.methods.data();
+                    PyType_Ready(&class_desc.type);
+                    Py_INCREF(&class_desc.type);
+                    std::ignore = PyModule_AddObjectRef(
+                        m,
+                        class_desc.type.tp_name,
+                        reinterpret_cast<PyObject*>(&class_desc.type)
+                    );
+                }(),
+                ...
+            );
+        },
+        entities.classes
+    );
 }
 
 }  // namespace rebind
@@ -100,11 +110,11 @@ inline void addEntities(PyObject* m, E&& entities) {
 // - no default args
 // - and more.
 
-#define REFLB_MODULE(name, entity)                                 \
-    PyMODINIT_FUNC REFLB_CONCAT(PyInit_, name)() {                 \
-        const char* cname = #name;                                 \
-        PyObject* m = rebind::initModule(cname);                   \
-        static const auto& entities = rebind::reflect<^^entity>(); \
-        addEntities(m, entities);                                  \
-        return m;                                                  \
+#define REFLB_MODULE(name, entity)                          \
+    PyMODINIT_FUNC REFLB_CONCAT(PyInit_, name)() {          \
+        const char* cname = #name;                          \
+        PyObject* m = rebind::initModule(cname);            \
+        static auto entities = rebind::reflect<^^entity>(); \
+        rebind::addEntities(m, entities);                   \
+        return m;                                           \
     }
