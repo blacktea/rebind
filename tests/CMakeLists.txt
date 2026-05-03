@@ -33,7 +33,7 @@ message(STATUS "test_targets" ${test_targets})
 # Run tests
 add_custom_target(
   pytest
-  COMMAND ${CMAKE_COMMAND} -E env TEST_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR} ${Python3_EXECUTABLE} -m pytest
+  COMMAND ${CMAKE_COMMAND} -E env TEST_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR} ${Python3_EXECUTABLE} -m pytest -s test_invoke_methods_with_args.py test_class.py
   DEPENDS ${test_targets}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   USES_TERMINAL)

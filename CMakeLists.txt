@@ -23,6 +23,7 @@ set(CMAKE_CXX_COMPILER
 add_library(rebind INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/include/rebind/rebind.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/rebind/cast.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/include/rebind/function_invoker.hpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/include/rebind/function_traits.hpp"
 )
 target_compile_options(rebind INTERFACE 

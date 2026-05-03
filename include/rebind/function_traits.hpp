@@ -30,4 +30,16 @@ struct function_traits<R (*)(Args...)> : function_traits<R(Args...)> {};
 template <class R, class... Args>
 struct function_traits<R (&)(Args...)> : function_traits<R(Args...)> {};
 
+// 4) Member function pointer: R(C::*)(Args...)
+template <class C, class R, class... Args>
+struct function_traits<R (C::*)(Args...)> : function_traits<R(Args...)> {
+    using class_type = C;
+};
+
+// 5) Const member function pointer: R(C::*)(Args...) const
+template <class C, class R, class... Args>
+struct function_traits<R (C::*)(Args...) const> : function_traits<R(Args...)> {
+    using class_type = C;
+};
+
 }  // namespace rebind

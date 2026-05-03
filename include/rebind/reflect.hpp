@@ -3,6 +3,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <meta>
@@ -15,18 +16,17 @@
 #include <utility>
 #include <vector>
 
-#include "cast.hpp"
+#include "function_invoker.hpp"
 #include "function_traits.hpp"
 
 namespace rebind {
 
-// The method counts number of methods in a given namespace
-// Template Type denotes namespace.
-template <auto Type>
+// The method counts number of all members methods.
+template <auto R>
 inline consteval size_t numOfMembers() noexcept {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
 
-    return std::ranges::distance(std::meta::members_of(Type, ctx));
+    return std::ranges::distance(std::meta::members_of(R, ctx));
 }
 
 // ========================
@@ -59,57 +59,9 @@ public:
 
 private:
     PyObject* pyWrapper(PyObject* args, PyObject* /*kwargs*/) const noexcept {
-        /*
-        TODO: Handle errors, exceptions, etc.
-        TODO: parse arguments. Currently supports method with no arguments.
-        - i: Integer (converts to C int).
-        - s: String (converts to const char *).
-        - f: Float (converts to C float).
-        - d: Double (converts to C double).
-        - O: Object (extracts the raw PyObject* without conversion).
-        - |: Indicates that subsequent arguments are optional.
-        */
-
-        // Check args is tuple.
-        if (!PyTuple_Check(args)) {
-            PyErr_SetString(PyExc_ValueError, "Args must be a tuple type");
-            Py_RETURN_NONE;
-        }
-
-        if (PyTuple_GET_SIZE(args) != std::tuple_size_v<args_tuple>) {
-            PyErr_SetString(PyExc_ValueError, "Mismatch number of arguments");
-            Py_RETURN_NONE;
-        }
-
-        auto invoke_with_args = [this, args]<size_t... I>(std::index_sequence<I...>) {
-            if constexpr (std::tuple_size_v<args_tuple> == 0) {
-                static_assert(std::tuple_size_v<args_tuple> == 0);
-                return this->fn();
-
-            } else {
-                static_assert(std::tuple_size_v<args_tuple> > 0);
-                return std::invoke(
-                    [this, args](auto&&... a) { return this->fn(std::forward<decltype(a)>(a)...); },
-                    cast_tuple_item_to_cpp<std::tuple_element_t<I, args_tuple>>(args, I)...
-                );
-            }
-        };
-
-        if constexpr (std::is_void_v<return_type>) {
-            invoke_with_args(std::make_index_sequence<0>{});
-            Py_RETURN_NONE;
-        } else {
-            // TODO: support refs, other types(pair, tuples, vectors, etc.).
-
-            auto result = invoke_with_args(std::make_index_sequence<std::tuple_size_v<args_tuple>>{});
-            PyObject* py_result = cast_to_python(result);
-            if (!py_result) {
-                PyErr_SetString(PyExc_ValueError, "failed to cast to python object");
-                Py_RETURN_NONE;
-            }
-            return py_result;
-        }
-        Py_RETURN_NONE;
+        return invokePythonCallable<args_tuple, return_type>(args, [this](auto&&... converted_args) -> decltype(auto) {
+            return this->fn(std::forward<decltype(converted_args)>(converted_args)...);
+        });
     }
 
     std::string_view name{};
@@ -120,11 +72,11 @@ private:
 template <typename Fn>
 CallableInfo(std::string_view, Fn) -> CallableInfo<Fn>;
 
-// The method creates CallableInfo from a function in the Type at I index.
-template <auto Type, size_t I>
+// The method creates CallableInfo from a member function of a namespace(R) at I index.
+template <std::meta::info R, size_t I>
 inline consteval auto getFunction() noexcept {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
-    constexpr auto members = std::define_static_array(std::meta::members_of(Type, ctx));
+    constexpr auto members = std::define_static_array(std::meta::members_of(R, ctx));
 
     if constexpr (std::meta::is_function(members[I])) {
         constexpr std::string_view name = std::meta::identifier_of(members[I]);
@@ -134,58 +86,14 @@ inline consteval auto getFunction() noexcept {
     }
 }
 
-template <std::meta::info Type, size_t... I>
+template <std::meta::info R, size_t... I>
 inline consteval auto collectFunctionsImpl(std::index_sequence<I...>) noexcept {
-    return std::tuple_cat(getFunction<Type, I>()...);
+    return std::tuple_cat(getFunction<R, I>()...);
 }
 
-template <std::meta::info Type>
+template <std::meta::info R>
 [[nodiscard]] inline consteval auto collectFunctions() noexcept {
-    return collectFunctionsImpl<Type>(std::make_index_sequence<numOfMembers<Type>()>{});
-}
-
-extern "C" inline PyObject* trampoline(PyObject* self, PyObject* args, PyObject* kwargs) {
-    const auto* cb = static_cast<const CallableBase*>(PyCapsule_GetPointer(self, "callable"));
-    if (!cb) {
-        return nullptr;
-    }
-
-    return cb->invoke(cb, args, kwargs);
-}
-
-template <typename Fn>
-inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn>* cb) {
-    auto* def = new PyMethodDef{
-        cb->getName().data(),
-        reinterpret_cast<PyCFunction>(trampoline),
-        METH_VARARGS | METH_KEYWORDS,
-        cb->getDoc().data()
-    };
-
-    PyObject* cap = PyCapsule_New(const_cast<void*>(reinterpret_cast<const void*>(cb)), "callable", nullptr);
-    if (!cap) {
-        delete def;
-        return nullptr;
-    }
-
-    PyObject* fn = PyCFunction_NewEx(def, cap, nullptr);
-    if (!fn) {
-        Py_DECREF(cap);
-        delete def;
-        return nullptr;
-    }
-
-    if (PyModule_AddObject(module, cb->getName().data(), fn) != 0) {
-        Py_DECREF(fn);
-        return nullptr;
-    }
-
-    return fn;
-}
-
-template <typename T>
-inline void addFunctionsWithTuple(PyObject* module, const T& tuple) {
-    std::apply([module](auto&&... t) { (addFunction(module, &t), ...); }, tuple);
+    return collectFunctionsImpl<R>(std::make_index_sequence<numOfMembers<R>()>{});
 }
 
 // =======================
@@ -211,16 +119,48 @@ struct PyClassWrapper {
 
     static PyObject* create(PyTypeObject* o, PyObject* args, PyObject* kwds) { return o->tp_alloc(o, 0); }
 
-    static int init(PyObject* op, PyObject* args, PyObject* kwds) {
-        // TODO: static_cast<empty<T>*>(op);
-        return 0;
-    }
+    static int init(PyObject* op, PyObject* args, PyObject* kwds) { return 0; }
 
     static void dealloc(PyObject* o) { Py_TYPE(o)->tp_free(o); }
 };
 
+template <size_t NMethods>
+struct ClassDescriptor {
+    PyTypeObject type;
+    std::array<PyMethodDef, NMethods + 1> methods{};  //< +1 for sentinel object.
+};
+
+template <std::meta::info R, typename Wrapper, size_t I>
+inline consteval auto getMethodDef() noexcept {
+    static constexpr auto ctx = std::meta::access_context::unprivileged();
+    constexpr auto members = std::define_static_array(std::meta::members_of(R, ctx));
+
+    if constexpr (std::meta::is_function(members[I]) && !std::meta::is_special_member_function(members[I])) {
+        return std::make_tuple(
+            PyMethodDef{
+                .ml_name = std::meta::identifier_of(members[I]).data(),
+                .ml_meth = MethodInvoker<&[:members[I]:], Wrapper>::invoke,
+                .ml_flags = METH_VARARGS,
+                .ml_doc = "doc",
+            }
+        );
+    } else {
+        return std::tuple<>();
+    }
+}
+
+template <std::meta::info R, typename Wrapper, size_t... I>
+inline consteval auto collectMethodDefsImpl(std::index_sequence<I...>) noexcept {
+    return std::tuple_cat(getMethodDef<R, Wrapper, I>()...);
+}
+
+template <std::meta::info C, typename Wrapper>
+inline consteval auto collectMethodDefs() noexcept {
+    return collectMethodDefsImpl<C, Wrapper>(std::make_index_sequence<numOfMembers<C>()>{});
+}
+
 template <std::meta::info C>
-inline consteval PyTypeObject reflect_class() noexcept {
+inline consteval auto reflect_class() noexcept {
     constexpr std::meta::info t = std::meta::substitute(
         ^^PyClassWrapper,
         {
@@ -229,52 +169,78 @@ inline consteval PyTypeObject reflect_class() noexcept {
     );
     const auto class_name = std::meta::identifier_of(C);
     using type_t = typename[:t:];
+    constexpr auto method_defs = collectMethodDefs<C, type_t>();
+    ClassDescriptor<std::tuple_size_v<decltype(method_defs)>> desc{};
+    desc.type = PyTypeObject{};
+    desc.type.ob_base.ob_base.ob_refcnt = 1;
+    desc.type.ob_base.ob_base.ob_type = nullptr;
+    desc.type.ob_base.ob_size = 0;
+    desc.type.tp_name = class_name.data();  //< TODO: include module name.
+    desc.type.tp_basicsize = sizeof(type_t);
+    desc.type.tp_itemsize = 0;
+    desc.type.tp_dealloc = type_t::dealloc;
+    desc.type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE;
+    desc.type.tp_doc = PyDoc_STR(class_name.data());
+    desc.type.tp_init = type_t::init;
+    desc.type.tp_new = type_t::create;
+    desc.type.tp_methods = nullptr;  //< Note: Filled at runtime
 
-    return PyTypeObject{
-        .ob_base = PyVarObject_HEAD_INIT(NULL, 0).tp_name = class_name.data(),  //< TODO: include module name.
-        .tp_basicsize = sizeof(type_t),
-        .tp_itemsize = 0,
-        .tp_dealloc = type_t::dealloc,
-        .tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,
-        .tp_doc = PyDoc_STR(class_name.data()),
-        .tp_init = type_t::init,
-        .tp_new = type_t::create,
-    };
+    std::apply(
+        [&desc](auto... method_def) {
+            size_t method_id{};
+            ((desc.methods[method_id++] = method_def), ...);
+        },
+        method_defs
+    );
+    // Fill sentinel method
+    desc.methods[std::tuple_size_v<decltype(method_defs
+    )>] = PyMethodDef{.ml_name = nullptr, .ml_meth = nullptr, .ml_flags = 0, .ml_doc = nullptr};
+
+    return desc;
 }
 
 // =======================
 // Reflection
 // =======================
 
-template <typename FunctionTuple, size_t CN>
+template <auto R, size_t I>
+inline consteval auto getClass() noexcept {
+    static constexpr auto ctx = std::meta::access_context::unprivileged();
+    constexpr auto members = std::define_static_array(std::meta::members_of(R, ctx));
+
+    if constexpr (!std::meta::is_variable(members[I]) && !std::meta::is_function(members[I]) &&
+                  std::meta::is_class_type(members[I]))
+    {
+        return std::make_tuple(reflect_class<members[I]>());
+    } else {
+        return std::tuple<>();
+    }
+}
+
+template <std::meta::info R, size_t... I>
+inline consteval auto collectClassesImpl(std::index_sequence<I...>) noexcept {
+    return std::tuple_cat(getClass<R, I>()...);
+}
+
+template <std::meta::info R>
+inline consteval auto reflectClasses() noexcept {
+    return collectClassesImpl<R>(std::make_index_sequence<numOfMembers<R>()>{});
+}
+
+template <typename FunctionTuple, typename ClassTuple>
 struct Entities {
     FunctionTuple functions;
-    std::array<PyTypeObject, CN> classes;
-    size_t num_of_classes{};
-
-    constexpr void addClass(PyTypeObject o) { classes[num_of_classes++] = o; }
-
-    constexpr auto getClasses() const {
-        return std::ranges::subrange(classes.begin(), classes.begin() + num_of_classes);
-    }
+    ClassTuple classes;
 };
 
 template <std::meta::info N>
 inline consteval auto reflect() {
-    constexpr auto functions = collectFunctions<N>();
-    Entities<decltype(functions), numOfMembers<N>()> entities{
+    auto functions = collectFunctions<N>();
+    auto classes = reflectClasses<N>();
+    Entities<std::remove_cvref_t<decltype(functions)>, std::remove_cvref_t<decltype(classes)>> entities{
         .functions = functions,
+        .classes = classes,
     };
-
-    static constexpr auto ctx = std::meta::access_context::unprivileged();
-
-    template for (constexpr auto m : std::define_static_array(std::meta::members_of(N, ctx))) {
-        if constexpr (std::meta::is_function(m)) {
-            continue;
-        } else if constexpr (std::meta::is_class_type(m)) {
-            entities.addClass(reflect_class<m>());
-        }
-    }
     return entities;
 }
 
