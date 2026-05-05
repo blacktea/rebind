@@ -19,6 +19,14 @@
 
 namespace rebind {
 
+extern "C" inline void destroyFunctionCapsule(PyObject* capsule) {
+    if (!PyCapsule_IsValid(capsule, "callable")) {
+        return;
+    }
+
+    delete static_cast<PyMethodDef*>(PyCapsule_GetContext(capsule));
+}
+
 extern "C" inline PyObject* trampoline(PyObject* self, PyObject* args, PyObject* kwargs) {
     const auto* cb = static_cast<const CallableBase*>(PyCapsule_GetPointer(self, "callable"));
     if (!cb) {
@@ -37,16 +45,20 @@ inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn>* cb) {
         cb->getDoc().data()
     };
 
-    PyObject* cap = PyCapsule_New(const_cast<void*>(reinterpret_cast<const void*>(cb)), "callable", nullptr);
+    PyObject* cap = PyCapsule_New(const_cast<void*>(reinterpret_cast<const void*>(cb)), "callable", destroyFunctionCapsule);
     if (!cap) {
         delete def;
+        return nullptr;
+    }
+
+    if (PyCapsule_SetContext(cap, def) != 0) {
+        Py_DECREF(cap);
         return nullptr;
     }
 
     PyObject* fn = PyCFunction_NewEx(def, cap, nullptr);
     if (!fn) {
         Py_DECREF(cap);
-        delete def;
         return nullptr;
     }
 
@@ -64,8 +76,15 @@ inline void addFunctionsWithTuple(PyObject* module, const T& tuple) {
 }
 
 [[nodiscard]] inline PyObject* initModule(const char* name) {
-    PyModuleDef* defs = new PyModuleDef{PyModuleDef_HEAD_INIT, name, nullptr, -1, nullptr};
+    auto* defs = new PyModuleDef{PyModuleDef_HEAD_INIT, name, nullptr, -1, nullptr};
+    if (auto m = PyModule_Create(defs); m) {
+        return m;
+    }
+    delete defs;
+    throw std::runtime_error{"failed to create module"};
+}
 
+[[nodiscard]] inline PyObject* initModule(PyModuleDef* defs) {
     if (auto m = PyModule_Create(defs); m) {
         return m;
     }
@@ -113,7 +132,8 @@ inline void addEntities(PyObject* m, E&& entities) {
 #define REFLB_MODULE(name, entity)                          \
     PyMODINIT_FUNC REFLB_CONCAT(PyInit_, name)() {          \
         const char* cname = #name;                          \
-        PyObject* m = rebind::initModule(cname);            \
+        static PyModuleDef defs{PyModuleDef_HEAD_INIT, cname, nullptr, -1, nullptr}; \
+        PyObject* m = rebind::initModule(&defs);            \
         static auto entities = rebind::reflect<^^entity>(); \
         rebind::addEntities(m, entities);                   \
         return m;                                           \

@@ -6,10 +6,24 @@ on:
 
 jobs:
   build-and-test:
+    name: ${{ matrix.name }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: default
+            build_dir: build
+            cmake_args: ""
+          - name: address-sanitizer
+            build_dir: build-asan
+            cmake_args: "-DENABLE_ADDRESS_SANITIZER=ON"
+          - name: undefined-sanitizer
+            build_dir: build-ubsan
+            cmake_args: "-DENABLE_UNDEFINED_SANITIZER=ON"
     env:
       IMAGE_NAME: rebind-ci
-      CONTAINER_NAME: rebind-ci
+      CONTAINER_NAME: rebind-ci-${{ matrix.name }}
 
     steps:
       - name: Check out repository
@@ -37,8 +51,8 @@ jobs:
             poetry install
 
             CXX_COMPILER="$(command -v g++ || command -v c++)"
-            cmake -S . -B build -DCMAKE_CXX_COMPILER="${CXX_COMPILER}"
-            cmake --build build
+            cmake -S . -B "${{ matrix.build_dir }}" -DCMAKE_CXX_COMPILER="${CXX_COMPILER}" ${{ matrix.cmake_args }}
+            cmake --build "${{ matrix.build_dir }}"
           '
 
       - name: Test project
@@ -46,7 +60,7 @@ jobs:
           docker exec "${CONTAINER_NAME}" bash -lc '
             set -euo pipefail
             source .venv/bin/activate
-            cmake --build build --target pytest
+            cmake --build "${{ matrix.build_dir }}" --target pytest
           '
 
       - name: Stop Docker container

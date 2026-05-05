@@ -92,6 +92,13 @@ Then running tests is simple:
 cmake --build build --target pytest 
 ```
 
+Optional sanitizer builds:
+
+```
+cmake -S . -B build-asan -DENABLE_ADDRESS_SANITIZER=ON
+cmake -S . -B build-ubsan -DENABLE_UNDEFINED_SANITIZER=ON
+```
+
 ## TODO
 
 Current limitations include:
