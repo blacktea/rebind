@@ -30,10 +30,20 @@ add_test(class_test class_test)
 
 
 message(STATUS "test_targets" ${test_targets})
+
+set(pytest_env TEST_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR})
+if (ENABLE_ADDRESS_SANITIZER)
+    if (NOT REBIND_ASAN_RUNTIME)
+        message(FATAL_ERROR "Unable to locate AddressSanitizer runtime for pytest")
+    endif()
+    list(APPEND pytest_env LD_PRELOAD=${REBIND_ASAN_RUNTIME})
+    list(APPEND pytest_env ASAN_OPTIONS=detect_leaks=0)
+endif()
+
 # Run tests
 add_custom_target(
   pytest
-  COMMAND ${CMAKE_COMMAND} -E env TEST_MODULE_PATH=${CMAKE_CURRENT_BINARY_DIR} ${Python3_EXECUTABLE} -m pytest -s test_invoke_methods_with_args.py test_class.py
+  COMMAND ${CMAKE_COMMAND} -E env ${pytest_env} ${Python3_EXECUTABLE} -m pytest -s test_invoke_methods_with_args.py test_class.py
   DEPENDS ${test_targets}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   USES_TERMINAL)
