@@ -25,8 +25,8 @@ function(add_test name src)
     set(test_targets ${test_targets};${name} PARENT_SCOPE)
 endfunction()
 
-add_test(tests args_and_returns)
-add_test(class_test class_test)
+add_test(test_invoke_methods_with_args test_invoke_methods_with_args)
+add_test(test_class test_class)
 
 
 message(STATUS "test_targets" ${test_targets})
@@ -47,3 +47,12 @@ add_custom_target(
   DEPENDS ${test_targets}
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   USES_TERMINAL)
+
+#   add_executable(class_refl class_refl.cpp)
+#   target_link_libraries(class_refl PRIVATE rebind)
+#     target_compile_options(class_refl PRIVATE 
+#         -Wall
+#         -Wextra
+#         -std=c++26
+#         -freflection
+#     )
