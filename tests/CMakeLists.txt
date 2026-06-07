@@ -25,8 +25,8 @@ function(add_test name src)
     set(test_targets ${test_targets};${name} PARENT_SCOPE)
 endfunction()
 
-add_test(tests args_and_returns)
-add_test(class_test class_test)
+add_test(tests test_invoke_methods_with_args)
+add_test(class_test test_class)
 
 
 message(STATUS "test_targets" ${test_targets})

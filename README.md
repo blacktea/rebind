@@ -7,13 +7,21 @@ For example, there are C++ functions that we want to expose.
 
 ```cpp
 namespace test {
-    int a{};
-    void foo() {
-        std::println("foo method");
-    }
 
-    void bar() {
-        std::println("bar method");
+    struct Age {
+        int age{};
+
+        Age(int age) : age{age} {}
+
+        int get_age(int value) { return age; }
+
+        void set_age(int value) { age = value; }
+
+        int add_to_age(int value) const { return age + value; }
+    };
+    
+    int add(int a, int b) {
+        return a + b;
     }
 }
 ```
@@ -24,14 +32,19 @@ All we need to do is to provide the `test` namespace:
 REFLB_MODULE(example, test)
 ```
 
-By using reflection, the rebind project can get `foo` and `bar` methods and makes them available for Python code. Exposing new methods does not require writing binding code.
+By using reflection, the rebind can make entities(classes and functions) available for Python code. Exposing new methods does not require writing binding code.
 
 ```python
 
-import test
+import example
 
-test.add(1, 2)
-test.mul(3.4, 5.6)
+age = example.Age(10)
+
+print("add to age", age.add_to_age(30))
+
+print("get age", age.set_age(30))
+
+print("sum 1 + 2", example.add(1, 2))
 
 ```
 
@@ -101,14 +114,9 @@ cmake -S . -B build-ubsan -DENABLE_UNDEFINED_SANITIZER=ON
 
 ## TODO
 
-Current limitations include:
-
 - [ ] No overload resolution
+- [ ] Support =delete and other specifiers
+- [ ] Support access to public member variables
 - [ ] Handle types mismatch
-- [ ] Only free functions in namespaces are supported
-- [ ] Support classes, member functions, or variables
 - [ ] Handle exception translation (C++ → Python)
-- [ ] Requires an experimental Clang fork (not standard C++)
-
-These limitations are intentional to keep the project focused on
-demonstrating C++ reflection.
+- [ ] And more

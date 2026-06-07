@@ -7,6 +7,7 @@
 #include <array>
 #include <functional>
 #include <meta>
+#include <optional>
 #include <print>
 #include <ranges>
 #include <stdexcept>
@@ -105,21 +106,18 @@ struct PyClassWrapper {
     struct Storage;
     consteval {
         std::vector<std::meta::info> mems;
-        mems.push_back(
-            std::meta::data_member_spec(
-                ^^T,
-                {
-                    .name = "cpp_class"
-                }
-            )
+        constexpr std::meta::info optional = std::meta::substitute(
+            ^^std::optional,
+            {
+                ^^T
+            }
         );
+        mems.push_back(std::meta::data_member_spec(optional, {.name = "cpp_class"}));
         std::meta::define_aggregate(^^Storage, mems);
     }
     PyObject_HEAD Storage store{};
 
     static PyObject* create(PyTypeObject* o, PyObject* args, PyObject* kwds) { return o->tp_alloc(o, 0); }
-
-    static int init(PyObject* op, PyObject* args, PyObject* kwds) { return 0; }
 
     static void dealloc(PyObject* o) { Py_TYPE(o)->tp_free(o); }
 };
@@ -135,7 +133,10 @@ inline consteval auto getMethodDef() noexcept {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
     constexpr auto members = std::define_static_array(std::meta::members_of(R, ctx));
 
-    if constexpr (std::meta::is_function(members[I]) && !std::meta::is_special_member_function(members[I])) {
+    if constexpr (std::meta::is_function(members[I]) && !std::meta::is_special_member_function(members[I]) &&
+                  !std::meta::is_constructor(members[I]))
+    {
+        std::meta::parameters_of(members[I]);
         return std::make_tuple(
             PyMethodDef{
                 .ml_name = std::meta::identifier_of(members[I]).data(),
@@ -159,6 +160,29 @@ inline consteval auto collectMethodDefs() noexcept {
     return collectMethodDefsImpl<C, Wrapper>(std::make_index_sequence<numOfMembers<C>()>{});
 }
 
+template <std::meta::info R>
+consteval auto getTypesOfFunctionArgs() {
+    constexpr auto params = std::define_static_array(std::meta::parameters_of(R));
+
+    return [params]<size_t... I>(std::index_sequence<I...>) {
+        return std::tuple<typename[:std::meta::type_of(params[I]):]...>{};
+    }(std::make_index_sequence<params.size()>());
+}
+
+template <std::meta::info C, typename Wrapper>
+inline consteval auto getConstructorInvoker() {
+    static constexpr auto ctx = std::meta::access_context::unprivileged();
+
+    template for (constexpr auto m : std::define_static_array(std::meta::members_of(C, ctx))) {
+        if constexpr (std::meta::is_public(m) && std::meta::is_constructor(m) && !is_copy_constructor(m) &&
+                      !is_move_constructor(m))
+        {
+            auto argTypes = getTypesOfFunctionArgs<m>();
+            return &ConstructorInvoker<decltype(argTypes), Wrapper>::invoke;
+        }
+    }
+}
+
 template <std::meta::info C>
 inline consteval auto reflect_class() noexcept {
     constexpr std::meta::info t = std::meta::substitute(
@@ -169,8 +193,8 @@ inline consteval auto reflect_class() noexcept {
     );
     const auto class_name = std::meta::identifier_of(C);
     using type_t = typename[:t:];
-    constexpr auto method_defs = collectMethodDefs<C, type_t>();
-    ClassDescriptor<std::tuple_size_v<decltype(method_defs)>> desc{};
+    constexpr auto methodDefs = collectMethodDefs<C, type_t>();
+    ClassDescriptor<std::tuple_size_v<decltype(methodDefs)>> desc{};
     desc.type = PyTypeObject{};
     desc.type.ob_base.ob_base.ob_refcnt = 1;
     desc.type.ob_base.ob_base.ob_type = nullptr;
@@ -181,7 +205,7 @@ inline consteval auto reflect_class() noexcept {
     desc.type.tp_dealloc = type_t::dealloc;
     desc.type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE;
     desc.type.tp_doc = PyDoc_STR(class_name.data());
-    desc.type.tp_init = type_t::init;
+    desc.type.tp_init = getConstructorInvoker<C, type_t>();
     desc.type.tp_new = type_t::create;
     desc.type.tp_methods = nullptr;  //< Note: Filled at runtime
 
@@ -190,10 +214,10 @@ inline consteval auto reflect_class() noexcept {
             size_t method_id{};
             ((desc.methods[method_id++] = method_def), ...);
         },
-        method_defs
+        methodDefs
     );
     // Fill sentinel method
-    desc.methods[std::tuple_size_v<decltype(method_defs
+    desc.methods[std::tuple_size_v<decltype(methodDefs
     )>] = PyMethodDef{.ml_name = nullptr, .ml_meth = nullptr, .ml_flags = 0, .ml_doc = nullptr};
 
     return desc;

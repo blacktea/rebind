@@ -13,6 +13,10 @@ def test_init_class() -> None:
     assert obj.is_adult() is False
 
 
+def test_init_ctor() -> None:
+    obj = class_test.TestConstructor(12)
+    assert obj.add_to_age(5) == 17
+
 def test_mutating_methods_update_instance_state() -> None:
     obj = class_test.TestClass()
 
