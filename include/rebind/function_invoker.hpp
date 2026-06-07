@@ -62,9 +62,25 @@ struct MethodInvoker {
 
     static PyObject* invoke(PyObject* self, PyObject* args) noexcept {
         auto* wrapper = reinterpret_cast<Wrapper*>(self);
-        return invokePythonCallable<args_tuple, return_type>(args, [wrapper](auto&&... converted_args) -> decltype(auto) {
-            return (wrapper->store.cpp_class.*Method)(std::forward<decltype(converted_args)>(converted_args)...);
+        return invokePythonCallable<
+            args_tuple,
+            return_type>(args, [wrapper](auto&&... converted_args) -> decltype(auto) {
+            return (wrapper->store.cpp_class.value().*Method)(std::forward<decltype(converted_args)>(converted_args)...
+            );
         });
+    }
+};
+
+template <typename ArgsTuple, typename Wrapper>
+struct ConstructorInvoker {
+    using return_type = void;
+
+    static int invoke(PyObject* self, PyObject* args, PyObject*) {
+        auto* wrapper = reinterpret_cast<Wrapper*>(self);
+        invokePythonCallable<ArgsTuple, return_type>(args, [wrapper](auto&&... converted_args) -> void {
+            std::ignore = wrapper->store.cpp_class.emplace(std::forward<decltype(converted_args)>(converted_args)...);
+        });
+        return 0;
     }
 };
 
