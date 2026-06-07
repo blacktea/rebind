@@ -4,7 +4,7 @@
 #include <string>
 #include <string_view>
 
-namespace class_test {
+namespace test_class {
 
 struct TestClass {
     int age{};
@@ -42,6 +42,6 @@ struct TestConstructorDeleted {
 
 */
 
-}  // namespace class_test
+}  // namespace test_class
 
-REFLB_MODULE(class_test, class_test)
+REFLB_MODULE(test_class, test_class)
