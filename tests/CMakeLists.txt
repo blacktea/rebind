@@ -26,7 +26,7 @@ function(add_test name src)
 endfunction()
 
 add_test(tests test_invoke_methods_with_args)
-add_test(test_class test_class)
+add_test(class_test test_class)
 
 
 message(STATUS "test_targets" ${test_targets})

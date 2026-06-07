@@ -44,4 +44,4 @@ struct TestConstructorDeleted {
 
 }  // namespace test_class
 
-REFLB_MODULE(test_class, test_class)
+REFLB_MODULE(class_test, test_class)
