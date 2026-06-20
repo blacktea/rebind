@@ -81,7 +81,7 @@ inline consteval auto getFunction() noexcept {
 
     if constexpr (std::meta::is_function(members[I])) {
         constexpr std::string_view name = std::meta::identifier_of(members[I]);
-        return std::make_tuple(CallableInfo{name, [:members[I]:]});
+        return std::make_tuple(CallableInfo{name, &[:members[I]:]});
     } else {
         return std::tuple<>();
     }
@@ -103,46 +103,70 @@ template <std::meta::info R>
 
 template <typename T>
 struct PyClassWrapper {
-    struct Storage;
-    consteval {
-        std::vector<std::meta::info> mems;
-        constexpr std::meta::info optional = std::meta::substitute(
-            ^^std::optional,
-            {
-                ^^T
-            }
-        );
-        mems.push_back(std::meta::data_member_spec(optional, {.name = "cpp_class"}));
-        std::meta::define_aggregate(^^Storage, mems);
+    PyObject_HEAD  // new-line
+        std::optional<T>
+            cpp_class;
+
+    static PyObject* allocate(PyTypeObject* o, PyObject* args, PyObject* kwds) {
+        auto* self = reinterpret_cast<PyClassWrapper<T>*>(o->tp_alloc(o, 0));
+
+        if (!self) {
+            return nullptr;
+        }
+
+        std::construct_at(&self->cpp_class);
+
+        return reinterpret_cast<PyObject*>(self);
     }
-    PyObject_HEAD Storage store{};
 
-    static PyObject* create(PyTypeObject* o, PyObject* args, PyObject* kwds) { return o->tp_alloc(o, 0); }
-
-    static void dealloc(PyObject* o) { Py_TYPE(o)->tp_free(o); }
+    static void deallocate(PyObject* o) {
+        auto* self = reinterpret_cast<PyClassWrapper<T>*>(o);
+        std::destroy_at(&self->cpp_class);
+        Py_TYPE(o)->tp_free(o);
+    }
 };
 
 template <size_t NMethods>
 struct ClassDescriptor {
-    PyTypeObject type;
+    PyTypeObject type{};
     std::array<PyMethodDef, NMethods + 1> methods{};  //< +1 for sentinel object.
 };
+
+template <typename T>
+inline consteval auto makeClassDescriptor(T&& methodsTuple) {
+    constexpr size_t methodsCount = std::tuple_size_v<std::remove_cvref_t<T>>;
+    ClassDescriptor<methodsCount> desc{};
+
+    // Assign methods from the tuple.
+    std::apply(
+        [&desc](auto... method_def) {
+            size_t method_id{};
+            ((desc.methods[method_id++] = method_def), ...);
+        },
+        methodsTuple
+    );
+
+    // Fill sentinel method
+    desc.methods[methodsCount] = PyMethodDef{.ml_name = nullptr, .ml_meth = nullptr, .ml_flags = 0, .ml_doc = nullptr};
+
+    return desc;
+}
 
 template <std::meta::info R, typename Wrapper, size_t I>
 inline consteval auto getMethodDef() noexcept {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
     constexpr auto members = std::define_static_array(std::meta::members_of(R, ctx));
 
-    if constexpr (std::meta::is_function(members[I]) && !std::meta::is_special_member_function(members[I]) &&
+    if constexpr (std::meta::is_function(members[I]) && std::meta::is_public(members[I]) &&
+                  !std::meta::is_static_member(members[I]) && !std::meta::is_special_member_function(members[I]) &&
                   !std::meta::is_constructor(members[I]))
     {
-        std::meta::parameters_of(members[I]);
         return std::make_tuple(
             PyMethodDef{
                 .ml_name = std::meta::identifier_of(members[I]).data(),
                 .ml_meth = MethodInvoker<&[:members[I]:], Wrapper>::invoke,
                 .ml_flags = METH_VARARGS,
-                .ml_doc = "doc",
+                .ml_doc = "doc",  //< TODO: meaningful doc.
             }
         );
     } else {
@@ -155,13 +179,14 @@ inline consteval auto collectMethodDefsImpl(std::index_sequence<I...>) noexcept 
     return std::tuple_cat(getMethodDef<R, Wrapper, I>()...);
 }
 
+// Returns tuple of PyMethodDef. TODO: replace with std::array/std::inplace_vector?
 template <std::meta::info C, typename Wrapper>
 inline consteval auto collectMethodDefs() noexcept {
     return collectMethodDefsImpl<C, Wrapper>(std::make_index_sequence<numOfMembers<C>()>{});
 }
 
 template <std::meta::info R>
-consteval auto getTypesOfFunctionArgs() {
+consteval auto getTypesOfParameters() {
     constexpr auto params = std::define_static_array(std::meta::parameters_of(R));
 
     return [params]<size_t... I>(std::index_sequence<I...>) {
@@ -173,11 +198,12 @@ template <std::meta::info C, typename Wrapper>
 inline consteval auto getConstructorInvoker() {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
 
+    // TODO: use ranges
     template for (constexpr auto m : std::define_static_array(std::meta::members_of(C, ctx))) {
-        if constexpr (std::meta::is_public(m) && std::meta::is_constructor(m) && !is_copy_constructor(m) &&
-                      !is_move_constructor(m))
+        if constexpr (std::meta::is_public(m) && std::meta::is_constructor(m) && !std::meta::is_copy_constructor(m) &&
+                      !std::meta::is_move_constructor(m))
         {
-            auto argTypes = getTypesOfFunctionArgs<m>();
+            auto argTypes = getTypesOfParameters<m>();
             return &ConstructorInvoker<decltype(argTypes), Wrapper>::invoke;
         }
     }
@@ -185,40 +211,27 @@ inline consteval auto getConstructorInvoker() {
 
 template <std::meta::info C>
 inline consteval auto reflect_class() noexcept {
-    constexpr std::meta::info t = std::meta::substitute(
-        ^^PyClassWrapper,
-        {
-            C
-        }
-    );
-    const auto class_name = std::meta::identifier_of(C);
-    using type_t = typename[:t:];
-    constexpr auto methodDefs = collectMethodDefs<C, type_t>();
-    ClassDescriptor<std::tuple_size_v<decltype(methodDefs)>> desc{};
-    desc.type = PyTypeObject{};
+    using pywrapper_t = PyClassWrapper<typename[:C:]>;
+
+    const std::string_view class_name = std::meta::identifier_of(C);
+
+    constexpr auto methodsDefs = collectMethodDefs<C, pywrapper_t>();
+    auto desc = makeClassDescriptor(methodsDefs);
+    // TODO: init ob_base via Python macros?
     desc.type.ob_base.ob_base.ob_refcnt = 1;
     desc.type.ob_base.ob_base.ob_type = nullptr;
     desc.type.ob_base.ob_size = 0;
+
     desc.type.tp_name = class_name.data();  //< TODO: include module name.
-    desc.type.tp_basicsize = sizeof(type_t);
+    desc.type.tp_basicsize = sizeof(pywrapper_t);
     desc.type.tp_itemsize = 0;
-    desc.type.tp_dealloc = type_t::dealloc;
     desc.type.tp_flags = Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE;
     desc.type.tp_doc = PyDoc_STR(class_name.data());
-    desc.type.tp_init = getConstructorInvoker<C, type_t>();
-    desc.type.tp_new = type_t::create;
-    desc.type.tp_methods = nullptr;  //< Note: Filled at runtime
 
-    std::apply(
-        [&desc](auto... method_def) {
-            size_t method_id{};
-            ((desc.methods[method_id++] = method_def), ...);
-        },
-        methodDefs
-    );
-    // Fill sentinel method
-    desc.methods[std::tuple_size_v<decltype(methodDefs
-    )>] = PyMethodDef{.ml_name = nullptr, .ml_meth = nullptr, .ml_flags = 0, .ml_doc = nullptr};
+    desc.type.tp_new = pywrapper_t::allocate;                     //< Note: allocates a new Python wrapper object/
+    desc.type.tp_init = getConstructorInvoker<C, pywrapper_t>();  //< Note: can be invoked multiple times.
+    desc.type.tp_dealloc = pywrapper_t::deallocate;
+    desc.type.tp_methods = nullptr;  //< Note: assigned at runtime due to consteval rules.
 
     return desc;
 }

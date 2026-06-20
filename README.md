@@ -119,4 +119,8 @@ cmake -S . -B build-ubsan -DENABLE_UNDEFINED_SANITIZER=ON
 - [ ] Support access to public member variables
 - [ ] Handle types mismatch
 - [ ] Handle exception translation (C++ → Python)
+- [ ] Try replace std::array with std::inplace_vector
+- [ ] Try to use concepts
+- [ ] Use std::meta::parameters_of instead of function_trats struct.
+- [ ] Use ranges as much as possible.
 - [ ] And more
