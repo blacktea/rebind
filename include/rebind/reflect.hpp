@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <array>
 #include <functional>
+#include <inplace_vector>
 #include <meta>
 #include <optional>
 #include <print>
@@ -132,28 +133,21 @@ struct ClassDescriptor {
     std::array<PyMethodDef, NMethods + 1> methods{};  //< +1 for sentinel object.
 };
 
-template <typename T>
-inline consteval auto makeClassDescriptor(T&& methodsTuple) {
-    constexpr size_t methodsCount = std::tuple_size_v<std::remove_cvref_t<T>>;
-    ClassDescriptor<methodsCount> desc{};
+template <size_t Capacity>
+inline consteval auto makeClassDescriptor(const std::inplace_vector<PyMethodDef, Capacity>& methodDefs) {
+    ClassDescriptor<Capacity> desc{};
 
-    // Assign methods from the tuple.
-    std::apply(
-        [&desc](auto... method_def) {
-            size_t method_id{};
-            ((desc.methods[method_id++] = method_def), ...);
-        },
-        methodsTuple
-    );
+    std::ranges::copy(methodDefs, desc.methods.begin());
 
     // Fill sentinel method
-    desc.methods[methodsCount] = PyMethodDef{.ml_name = nullptr, .ml_meth = nullptr, .ml_flags = 0, .ml_doc = nullptr};
+    desc.methods[methodDefs.size()] =
+        PyMethodDef{.ml_name = nullptr, .ml_meth = nullptr, .ml_flags = 0, .ml_doc = nullptr};
 
     return desc;
 }
 
-template <std::meta::info R, typename Wrapper, size_t I>
-inline consteval auto getMethodDef() noexcept {
+template <std::meta::info R, typename Wrapper, size_t I, size_t Capacity>
+inline consteval void appendMethodDef(std::inplace_vector<PyMethodDef, Capacity>& methodDefs) noexcept {
     static constexpr auto ctx = std::meta::access_context::unprivileged();
     constexpr auto members = std::define_static_array(std::meta::members_of(R, ctx));
 
@@ -161,7 +155,7 @@ inline consteval auto getMethodDef() noexcept {
                   !std::meta::is_static_member(members[I]) && !std::meta::is_special_member_function(members[I]) &&
                   !std::meta::is_constructor(members[I]))
     {
-        return std::make_tuple(
+        methodDefs.push_back(
             PyMethodDef{
                 .ml_name = std::meta::identifier_of(members[I]).data(),
                 .ml_meth = MethodInvoker<&[:members[I]:], Wrapper>::invoke,
@@ -169,17 +163,16 @@ inline consteval auto getMethodDef() noexcept {
                 .ml_doc = "doc",  //< TODO: meaningful doc.
             }
         );
-    } else {
-        return std::tuple<>();
     }
 }
 
 template <std::meta::info R, typename Wrapper, size_t... I>
 inline consteval auto collectMethodDefsImpl(std::index_sequence<I...>) noexcept {
-    return std::tuple_cat(getMethodDef<R, Wrapper, I>()...);
+    std::inplace_vector<PyMethodDef, sizeof...(I)> methodDefs;
+    (appendMethodDef<R, Wrapper, I>(methodDefs), ...);
+    return methodDefs;
 }
 
-// Returns tuple of PyMethodDef. TODO: replace with std::array/std::inplace_vector?
 template <std::meta::info C, typename Wrapper>
 inline consteval auto collectMethodDefs() noexcept {
     return collectMethodDefsImpl<C, Wrapper>(std::make_index_sequence<numOfMembers<C>()>{});
