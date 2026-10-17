@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <stdexcept>
+
 
 int pow(int);
 
@@ -57,6 +59,21 @@ bool bool_identity(bool value) { return value; }
 float add_float(float a, float b) { return a + b; }
 
 double add_double(double a, double b) { return a + b; }
+
+
+// test overloads
+int sum(int a, int b) {
+    return a + b + 1;
+}
+
+int sum(bool a, bool b) {
+    return a || b;
+}
+
+int sum(double a, double b) {
+    return 10;
+}
+
 
 }  // namespace test
 
