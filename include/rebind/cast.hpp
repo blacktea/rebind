@@ -89,7 +89,7 @@ CType cast_to_cpp(PyObject* obj) {
     // int, bool, long, etc.
     if constexpr (std::is_integral_v<CTypeRaw>) {
         if (!PyLong_Check(obj)) {
-            throw std::runtime_error{"type is not compatible with C++ long"};
+            throw std::runtime_error{"type is not compatible with C++ int/bool/long"};
         }
         return static_cast<CTypeRaw>(PyLong_AsLong(obj));
     }

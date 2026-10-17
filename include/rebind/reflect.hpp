@@ -31,71 +31,169 @@ inline consteval size_t numOfMembers() noexcept {
     return std::ranges::distance(std::meta::members_of(R, ctx));
 }
 
+
 // ========================
-// Free function reflection
+// Function reflection
 // ========================
 
-class CallableBase {
-public:
-    PyObject* (*invoke)(const CallableBase*, PyObject* args, PyObject* kwargs);
-};
+template <typename F, size_t ...I>
+constexpr auto for_each_index_sequence(F&& f, std::index_sequence<I...>) {
+    constexpr bool allVoid = (std::is_void_v<decltype(std::forward<F>(f).template operator()<I>())> && ...);
 
-template <typename Fn>
-class CallableInfo final : public CallableBase {
-    using traits = function_traits<Fn>;
-    using return_type = typename traits::return_type;
-    using args_tuple = typename traits::args_tuple;
+    if constexpr (allVoid) {
+        (std::forward<F>(f).template operator()<I>(), ...);
+    } else {
+        auto wrap = [&f]<size_t Index>() {
+            using RetType = decltype(f.template operator()<Index>());
+            if constexpr (std::is_void_v<RetType>) {
+                f.template operator()<Index>();
+                return std::tuple<>{};
+            } else {
+                return std::make_tuple(f.template operator()<Index>());
+            }
+        };
+        return std::tuple_cat(wrap.template operator()<I>()...);
+    }
+}
 
+// TODO: rename class name. add comments.
+template<typename FunctionInvokeTuple>
+class CallableInfoCollection {
 public:
-    constexpr explicit CallableInfo(std::string_view fnName, Fn f) noexcept : name{fnName}, fn{f} {
-        this->invoke = &this->pyWrapperThunk;
+    constexpr explicit CallableInfoCollection(std::string_view name) 
+    : m_name{name} {}
+
+    static PyObject* invoke(PyObject* self, PyObject* args) noexcept {
+        try {
+            PyObject *result{nullptr};
+
+            for_each_index_sequence([&result, self, args]<size_t I>() {
+                try {
+                    if (!result) {
+                        result = std::tuple_element_t<I, FunctionInvokeTuple>::invoke(self, args);
+                    }
+                // TODO: catch specialized exception denoting argument incompatibility.
+                } catch (...) {}
+            }, std::make_index_sequence<std::tuple_size_v<FunctionInvokeTuple>>{});
+            
+            return result != nullptr ? result : Py_None;
+        }
+        catch(...) {
+            return Py_None;
+        }
     }
 
-    static PyObject* pyWrapperThunk(const CallableBase* base, PyObject* args, PyObject* kwargs) noexcept {
-        return static_cast<const CallableInfo<Fn>*>(base)->pyWrapper(args, kwargs);
-    }
+    [[nodiscard]] constexpr std::string_view getName() const noexcept { return m_name; }
 
-    [[nodiscard]] constexpr std::string_view getName() const noexcept { return name; }
-
-    [[nodiscard]] std::string_view getDoc() const noexcept { return doc; }
+    [[nodiscard]] constexpr std::string_view getDoc() const noexcept { return m_doc; }
 
 private:
-    PyObject* pyWrapper(PyObject* args, PyObject* /*kwargs*/) const noexcept {
-        return invokePythonCallable<args_tuple, return_type>(args, [this](auto&&... converted_args) -> decltype(auto) {
-            return this->fn(std::forward<decltype(converted_args)>(converted_args)...);
-        });
-    }
-
-    std::string_view name{};
-    std::string_view doc{"doc"};
-    Fn fn;
+    std::string_view m_name{};
+    std::string_view m_doc{"doc"};
 };
 
-template <typename Fn>
-CallableInfo(std::string_view, Fn) -> CallableInfo<Fn>;
+// Helper function used to determine whether the function overloads others.
+template<std::meta::info R, std::size_t I>
+inline consteval bool isFirstFunctionWithThisName()
+{
+    constexpr auto ctx =
+        std::meta::access_context::unprivileged();
 
-// The method creates CallableInfo from a member function of a namespace(R) at I index.
-template <std::meta::info R, size_t I>
-inline consteval auto getFunction() noexcept {
-    static constexpr auto ctx = std::meta::access_context::unprivileged();
-    constexpr auto members = std::define_static_array(std::meta::members_of(R, ctx));
+    constexpr auto members =
+        std::define_static_array(std::meta::members_of(R, ctx));
 
-    if constexpr (std::meta::is_function(members[I])) {
-        constexpr std::string_view name = std::meta::identifier_of(members[I]);
-        return std::make_tuple(CallableInfo{name, &[:members[I]:]});
+    constexpr auto current = members[I];
+
+    if constexpr (!std::meta::is_function(current)) {
+        return false;
     } else {
-        return std::tuple<>();
+        constexpr std::string_view currentName =
+            std::meta::identifier_of(current);
+
+        for (std::size_t j = 0; j < I; ++j) {
+            const auto previous = members[j];
+
+            if (std::meta::is_function(previous) &&
+                std::meta::identifier_of(previous) == currentName)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
 
-template <std::meta::info R, size_t... I>
-inline consteval auto collectFunctionsImpl(std::index_sequence<I...>) noexcept {
-    return std::tuple_cat(getFunction<R, I>()...);
+template<
+    std::meta::info R,
+    std::meta::info Representative,
+    std::size_t I>
+inline consteval auto selectFunction()
+{
+    constexpr auto ctx =
+        std::meta::access_context::unprivileged();
+
+    constexpr auto members =
+        std::define_static_array(std::meta::members_of(R, ctx));
+
+    constexpr auto candidate = members[I];
+
+    if constexpr (
+        std::meta::is_function(candidate) &&
+        std::meta::identifier_of(candidate) ==
+            std::meta::identifier_of(Representative)
+    ) {
+        constexpr std::string_view name =
+            std::meta::identifier_of(candidate);
+
+        return FunctionInvoker<&[:candidate:]>{};
+    }
 }
 
-template <std::meta::info R>
-[[nodiscard]] inline consteval auto collectFunctions() noexcept {
-    return collectFunctionsImpl<R>(std::make_index_sequence<numOfMembers<R>()>{});
+template<
+    std::meta::info R,
+    std::meta::info Representative,
+    size_t NMEMBERS
+>
+inline consteval auto makeFunctionCollection()
+{
+    auto functions = for_each_index_sequence([]<size_t I>() {
+        return selectFunction<R, Representative, I>();
+    }, std::make_index_sequence<NMEMBERS>{});
+
+    return CallableInfoCollection<decltype(functions)>{
+        std::meta::identifier_of(Representative)
+    };
+}
+
+// Discovers functions and creates callable objects.
+template<std::meta::info R>
+inline consteval auto collectFunctions()
+{
+    constexpr auto ctx =
+        std::meta::access_context::unprivileged();
+    constexpr auto members =
+        std::define_static_array(std::meta::members_of(R, ctx));
+
+    constexpr size_t membersCount = members.size();
+
+    std::inplace_vector<PyMethodDef, membersCount> functions;
+
+    for_each_index_sequence([&functions, &members]<size_t I>(){
+        if constexpr (isFirstFunctionWithThisName<R, I>()) {
+            constexpr auto representative = members[I];
+
+            using FunctionCollection = decltype(makeFunctionCollection<R, representative, membersCount>());
+            functions.push_back(PyMethodDef{
+                .ml_name = std::meta::identifier_of(representative).data(),
+                .ml_meth = FunctionCollection::invoke,
+                .ml_flags = METH_VARARGS,
+                .ml_doc = "doc",  //< TODO: meaningful doc.
+            });
+        }
+    }, std::make_index_sequence<membersCount>{});
+    
+    return functions;
 }
 
 // =======================
@@ -104,9 +202,8 @@ template <std::meta::info R>
 
 template <typename T>
 struct PyClassWrapper {
-    PyObject_HEAD  // new-line
-        std::optional<T>
-            cpp_class;
+    PyObject_HEAD;
+    std::optional<T> cpp_class;
 
     static PyObject* allocate(PyTypeObject* o, PyObject* args, PyObject* kwds) {
         auto* self = reinterpret_cast<PyClassWrapper<T>*>(o->tp_alloc(o, 0));
