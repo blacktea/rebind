@@ -60,25 +60,24 @@ struct MethodInvoker {
     using return_type = typename traits::return_type;
     using args_tuple = typename traits::args_tuple;
 
-    static PyObject* invoke(PyObject* self, PyObject* args) noexcept {
-        try {
-            auto* wrapper = reinterpret_cast<Wrapper*>(self);
-            return invokePythonCallable<
-                args_tuple,
-                return_type>(args, [wrapper](auto&&... converted_args) -> decltype(auto) {
-                return (wrapper->cpp_class.value().*Method)(std::forward<decltype(converted_args)>(converted_args)...);
-            });
-        }
-        catch(...) {
-            return Py_None;
-        }
+    static PyObject* invoke(PyObject* self, PyObject* args) {
+        auto* wrapper = reinterpret_cast<Wrapper*>(self);
+        return invokePythonCallable<
+            args_tuple,
+            return_type>(args, [wrapper](auto&&... converted_args) -> decltype(auto) {
+            return (wrapper->cpp_class.value().*Method)(std::forward<decltype(converted_args)>(converted_args)...);
+        });
     }
 };
 
-struct FunctionTag {};
+template<typename Wrapper>
+struct MethodInvokeCreator {
+    template <auto Function>
+    using Invoker = MethodInvoker<Function, Wrapper>;
+};
 
 template<auto Function>
-struct FunctionInvoker : public MethodInvoker<Function, FunctionTag> {
+struct FunctionInvoker {
     using traits = function_traits<decltype(Function)>;
     using return_type = typename traits::return_type;
     using args_tuple = typename traits::args_tuple;
@@ -88,6 +87,11 @@ struct FunctionInvoker : public MethodInvoker<Function, FunctionTag> {
             return Function(std::forward<decltype(converted_args)>(converted_args)...);
         });
     }
+};
+
+struct FunctionInvokeCreator {
+    template <auto Function>
+    using Invoker = FunctionInvoker<Function>;
 };
 
 

@@ -17,9 +17,13 @@ struct TestClass {
 
     int add_to_age(int value) const { return age + value; }
 
+    int add_to_age(float value) const { return age + static_cast<int>(value); }
+
     bool is_adult() const { return age >= 18; }
 
     std::string describe(std::string_view name) const { return std::format("{} is {}", name, age); }
+
+    std::string describe(int year) const { return std::format("Age {} in {}", age, year); }
 };
 
 struct TestConstructor {

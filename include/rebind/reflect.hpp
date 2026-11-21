@@ -103,17 +103,24 @@ inline consteval bool isFirstFunctionWithThisName()
         std::define_static_array(std::meta::members_of(R, ctx));
 
     constexpr auto current = members[I];
-
-    if constexpr (!std::meta::is_function(current)) {
-        return false;
+        
+    if constexpr (!std::meta::is_function(current) || 
+        std::meta::is_static_member(current) ||
+        std::meta::is_special_member_function(current) ||
+        std::meta::is_constructor(current) ||
+        std::meta::is_destructor(current) ||
+        !std::meta::has_identifier(current)
+    ) {
+            return false;
     } else {
         constexpr std::string_view currentName =
             std::meta::identifier_of(current);
 
         for (std::size_t j = 0; j < I; ++j) {
             const auto previous = members[j];
+            
 
-            if (std::meta::is_function(previous) &&
+            if (std::meta::has_identifier(previous) &&
                 std::meta::identifier_of(previous) == currentName)
             {
                 return false;
@@ -127,9 +134,11 @@ inline consteval bool isFirstFunctionWithThisName()
 template<
     std::meta::info R,
     std::meta::info Representative,
-    std::size_t I>
+    std::size_t I,
+    typename InvokeCreator>
 inline consteval auto selectFunction()
 {
+    // TODO: replace with passing concrete member.
     constexpr auto ctx =
         std::meta::access_context::unprivileged();
 
@@ -139,35 +148,40 @@ inline consteval auto selectFunction()
     constexpr auto candidate = members[I];
 
     if constexpr (
-        std::meta::is_function(candidate) &&
+        std::meta::has_identifier(candidate) &&
+        std::meta::has_identifier(Representative) &&
         std::meta::identifier_of(candidate) ==
             std::meta::identifier_of(Representative)
     ) {
         constexpr std::string_view name =
             std::meta::identifier_of(candidate);
 
-        return FunctionInvoker<&[:candidate:]>{};
+        return typename InvokeCreator::Invoker<&[:candidate:]>{};
     }
 }
 
 template<
     std::meta::info R,
     std::meta::info Representative,
-    size_t NMEMBERS
+    size_t NumMembers,
+    typename InvokeCreator
 >
 inline consteval auto makeFunctionCollection()
 {
     auto functions = for_each_index_sequence([]<size_t I>() {
-        return selectFunction<R, Representative, I>();
-    }, std::make_index_sequence<NMEMBERS>{});
+        return selectFunction<R, Representative, I, InvokeCreator>();
+    }, std::make_index_sequence<NumMembers>{});
 
     return CallableInfoCollection<decltype(functions)>{
         std::meta::identifier_of(Representative)
     };
 }
 
+
+
+// FunctionInvokeCreator
 // Discovers functions and creates callable objects.
-template<std::meta::info R>
+template<std::meta::info R, typename InvokeCreator>
 inline consteval auto collectFunctions()
 {
     constexpr auto ctx =
@@ -183,7 +197,7 @@ inline consteval auto collectFunctions()
         if constexpr (isFirstFunctionWithThisName<R, I>()) {
             constexpr auto representative = members[I];
 
-            using FunctionCollection = decltype(makeFunctionCollection<R, representative, membersCount>());
+            using FunctionCollection = decltype(makeFunctionCollection<R, representative, membersCount, InvokeCreator>());
             functions.push_back(PyMethodDef{
                 .ml_name = std::meta::identifier_of(representative).data(),
                 .ml_meth = FunctionCollection::invoke,
@@ -194,6 +208,48 @@ inline consteval auto collectFunctions()
     }, std::make_index_sequence<membersCount>{});
     
     return functions;
+}
+
+template<std::meta::info R, typename ClassWrapper>
+inline consteval auto collectMemberFunctions()
+{
+    constexpr auto ctx =
+        std::meta::access_context::unprivileged();
+    constexpr auto members =
+        std::define_static_array(std::meta::members_of(R, ctx));
+
+    constexpr size_t membersCount = members.size();
+
+    std::inplace_vector<PyMethodDef, membersCount> methodDefs;
+
+    for_each_index_sequence([&methodDefs, &members]<size_t I>(){
+        if constexpr (std::meta::is_function(members[I]) &&
+                std::meta::is_public(members[I]) &&
+                !std::meta::is_static_member(members[I]) &&
+                !std::meta::is_special_member_function(members[I]) &&
+                !std::meta::is_constructor(members[I]) &&
+                !std::meta::is_destructor(members[I])
+            ) {
+
+            if constexpr(isFirstFunctionWithThisName<R, I>()) {
+
+                constexpr auto representative = members[I];
+    
+                using InvokeCreator = MethodInvokeCreator<ClassWrapper>;
+                using FunctionCollection = decltype(makeFunctionCollection<R, representative, membersCount, InvokeCreator>());
+                methodDefs.push_back(
+                    PyMethodDef{
+                        .ml_name = std::meta::identifier_of(members[I]).data(),
+                        .ml_meth =  FunctionCollection::invoke,
+                        .ml_flags = METH_VARARGS,
+                        .ml_doc = "doc",  //< TODO: meaningful doc.
+                    }
+                );
+            }
+        }
+    }, std::make_index_sequence<membersCount>{});
+    
+    return methodDefs;
 }
 
 // =======================
@@ -305,7 +361,7 @@ inline consteval auto reflect_class() noexcept {
 
     const std::string_view class_name = std::meta::identifier_of(C);
 
-    constexpr auto methodsDefs = collectMethodDefs<C, pywrapper_t>();
+    constexpr auto methodsDefs = collectMemberFunctions<C, pywrapper_t>();
     auto desc = makeClassDescriptor(methodsDefs);
     // TODO: init ob_base via Python macros?
     desc.type.ob_base.ob_base.ob_refcnt = 1;
@@ -362,7 +418,7 @@ struct Entities {
 
 template <std::meta::info N>
 inline consteval auto reflect() {
-    auto functions = collectFunctions<N>();
+    auto functions = collectFunctions<N, FunctionInvokeCreator>();
     auto classes = reflectClasses<N>();
     Entities<std::remove_cvref_t<decltype(functions)>, std::remove_cvref_t<decltype(classes)>> entities{
         .functions = functions,

@@ -11,6 +11,16 @@ def test_overload() -> None:
     assert tests.sum(3.4, 4.56) == 10
 
 
+def test_overload_selects_bool_and_int_separately() -> None:
+    assert tests.sum(True, False) == 1
+    assert tests.sum(False, False) == 0
+    assert tests.sum(0, 0) == 1
+
+
+def test_overload_selects_string_arguments() -> None:
+    assert tests.sum("ab", "cd") == "abcd"
+
+
 def test_return_types() -> None:
     assert tests.return_float() == pytest.approx(3.14)
     assert tests.return_double() == pytest.approx(2.718281828)

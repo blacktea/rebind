@@ -74,6 +74,10 @@ int sum(double a, double b) {
     return 10;
 }
 
+std::string sum(std::string_view a, std::string_view b) {
+    return std::string{a} + std::string{b};
+}
+
 
 }  // namespace test
 
