@@ -35,6 +35,24 @@ def test_methods_with_arguments_and_return_values() -> None:
     obj.set_age(21)
 
     assert obj.describe("Alice") == "Alice is 21"
+    assert obj.describe(2026) == "Age 21 in 2026"
+
+def test_calss_overload() -> None:
+    obj = class_test.TestClass()
+    obj.set_age(55)
+
+    assert obj.add_to_age(5) == 60
+    assert obj.add_to_age(10.10) == 65
+
+
+def test_method_overloads_can_be_called_in_sequence() -> None:
+    obj = class_test.TestClass()
+    obj.set_age(10)
+
+    assert obj.add_to_age(2.5) == 12
+    assert obj.add_to_age(-3) == 7
+    assert obj.add_to_age(1.25) == 11
+    assert obj.get_age() == 10
 
 
 def test_method_argument_count_mismatch_raises_system_error() -> None:

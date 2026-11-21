@@ -6,7 +6,19 @@ sys.path.insert(0, os.environ["TEST_MODULE_PATH"])
 
 import tests
 
-# TODO: rename file to invoke_methods_with_args
+def test_overload() -> None:
+    assert tests.sum(3, 4) == 8
+    assert tests.sum(3.4, 4.56) == 10
+
+
+def test_overload_selects_bool_and_int_separately() -> None:
+    assert tests.sum(True, False) == 1
+    assert tests.sum(False, False) == 0
+    assert tests.sum(0, 0) == 1
+
+
+def test_overload_selects_string_arguments() -> None:
+    assert tests.sum("ab", "cd") == "abcd"
 
 
 def test_return_types() -> None:

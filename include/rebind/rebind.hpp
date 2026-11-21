@@ -19,60 +19,20 @@
 
 namespace rebind {
 
-extern "C" inline void destroyFunctionCapsule(PyObject* capsule) {
-    if (!PyCapsule_IsValid(capsule, "callable")) {
-        return;
-    }
+template<size_t Capacity>
+inline void addFunctions(PyObject* module, std::inplace_vector<PyMethodDef, Capacity>& functions) {
+    for (auto& def : functions) {
+        PyObject* fn = PyCFunction_New(&def, nullptr);
+        if (!fn) {
+            return;
+        }
 
-    delete static_cast<PyMethodDef*>(PyCapsule_GetContext(capsule));
-}
-
-extern "C" inline PyObject* trampoline(PyObject* self, PyObject* args, PyObject* kwargs) {
-    const auto* cb = static_cast<const CallableBase*>(PyCapsule_GetPointer(self, "callable"));
-    if (!cb) {
-        return nullptr;
-    }
-
-    return cb->invoke(cb, args, kwargs);
-}
-
-template <typename Fn>
-inline PyObject* addFunction(PyObject* module, const CallableInfo<Fn>* cb) {
-    auto* def = new PyMethodDef{
-        cb->getName().data(),
-        reinterpret_cast<PyCFunction>(trampoline),
-        METH_VARARGS | METH_KEYWORDS,
-        cb->getDoc().data()
-    };
-
-    PyObject* cap = PyCapsule_New(const_cast<void*>(reinterpret_cast<const void*>(cb)), "callable", destroyFunctionCapsule);
-    if (!cap) {
-        delete def;
-        return nullptr;
-    }
-
-    if (PyCapsule_SetContext(cap, def) != 0) {
-        Py_DECREF(cap);
-        return nullptr;
-    }
-
-    PyObject* fn = PyCFunction_NewEx(def, cap, nullptr);
-    if (!fn) {
-        Py_DECREF(cap);
-        return nullptr;
-    }
-
-    if (PyModule_AddObject(module, cb->getName().data(), fn) != 0) {
+        if (PyModule_AddObjectRef(module, def.ml_name, fn) != 0) {
+            Py_DECREF(fn);
+            return;
+        }
         Py_DECREF(fn);
-        return nullptr;
     }
-
-    return fn;
-}
-
-template <typename T>
-inline void addFunctionsWithTuple(PyObject* module, const T& tuple) {
-    std::apply([module](auto&&... t) { (addFunction(module, &t), ...); }, tuple);
 }
 
 [[nodiscard]] inline PyObject* initModule(const char* name) {
@@ -93,7 +53,7 @@ inline void addFunctionsWithTuple(PyObject* module, const T& tuple) {
 
 template <typename E>
 inline void addEntities(PyObject* m, E&& entities) {
-    addFunctionsWithTuple(m, entities.functions);
+    addFunctions(m, entities.functions);
 
     std::apply(
         [m](auto&... class_desc) {

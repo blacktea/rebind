@@ -13,7 +13,7 @@
 namespace rebind {
 
 template <typename ArgsTuple, typename Return, typename Invoke>
-PyObject* invokePythonCallable(PyObject* args, Invoke&& invoke) noexcept {
+PyObject* invokePythonCallable(PyObject* args, Invoke&& invoke) {
     /*
     TODO: Handle errors, exceptions, etc.
     TODO: parse arguments. Currently supports method with no arguments.
@@ -60,7 +60,7 @@ struct MethodInvoker {
     using return_type = typename traits::return_type;
     using args_tuple = typename traits::args_tuple;
 
-    static PyObject* invoke(PyObject* self, PyObject* args) noexcept {
+    static PyObject* invoke(PyObject* self, PyObject* args) {
         auto* wrapper = reinterpret_cast<Wrapper*>(self);
         return invokePythonCallable<
             args_tuple,
@@ -70,10 +70,36 @@ struct MethodInvoker {
     }
 };
 
+template<typename Wrapper>
+struct MethodInvokeCreator {
+    template <auto Function>
+    using Invoker = MethodInvoker<Function, Wrapper>;
+};
+
+template<auto Function>
+struct FunctionInvoker {
+    using traits = function_traits<decltype(Function)>;
+    using return_type = typename traits::return_type;
+    using args_tuple = typename traits::args_tuple;
+
+    static PyObject* invoke(PyObject*, PyObject* args) {
+        return invokePythonCallable<args_tuple, return_type>(args, [](auto&&... converted_args) -> decltype(auto) {
+            return Function(std::forward<decltype(converted_args)>(converted_args)...);
+        });
+    }
+};
+
+struct FunctionInvokeCreator {
+    template <auto Function>
+    using Invoker = FunctionInvoker<Function>;
+};
+
+
 template <typename ArgsTuple, typename Wrapper>
 struct ConstructorInvoker {
     using return_type = void;
 
+    // TODO: support kwargs
     static int invoke(PyObject* self, PyObject* args, PyObject*) {
         auto* wrapper = reinterpret_cast<Wrapper*>(self);
         invokePythonCallable<ArgsTuple, return_type>(args, [wrapper](auto&&... converted_args) -> void {
